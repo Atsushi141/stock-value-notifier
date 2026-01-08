@@ -406,15 +406,40 @@ class WorkflowRunner:
         try:
             # Get list of Japanese stocks to screen
             self.logger.info("Fetching Japanese stock list")
-            stock_symbols = self.data_fetcher.get_japanese_stock_list()
-            self.logger.info(f"Screening {len(stock_symbols)} stocks")
+
+            # Check if full screening mode is enabled via environment variable
+            screening_mode = os.getenv(
+                "SCREENING_MODE", "curated"
+            )  # "curated" or "all"
+            analysis_period = os.getenv("ANALYSIS_PERIOD", "3y")  # "1y", "2y", "3y"
+
+            if screening_mode == "all":
+                self.logger.warning(
+                    "Full screening mode enabled - this will analyze ~3800 stocks and may take several hours"
+                )
+
+            stock_symbols = self.data_fetcher.get_japanese_stock_list(
+                mode=screening_mode
+            )
+            self.logger.info(
+                f"Screening {len(stock_symbols)} stocks (mode: {screening_mode}, period: {analysis_period})"
+            )
+
+            # Send start notification
+            self.slack_notifier.send_analysis_start_notification(
+                len(stock_symbols), screening_mode
+            )
 
             # Log data fetching start
             data_fetch_start = datetime.now()
 
-            # Collect stock data
+            # Collect stock data with progress notifications
             stock_data_list = []
             failed_symbols = []
+            batch_processed = []
+            progress_interval = (
+                100 if screening_mode == "all" else 50
+            )  # Progress notification interval
 
             for i, symbol in enumerate(stock_symbols):
                 try:
@@ -425,11 +450,15 @@ class WorkflowRunner:
                     # Get financial info for each stock
                     financial_info = self.data_fetcher.get_financial_info(symbol)
 
-                    # Get dividend history
-                    dividend_history = self.data_fetcher.get_dividend_history(symbol)
+                    # Get dividend history (use shorter period for performance)
+                    dividend_history = self.data_fetcher.get_dividend_history(
+                        symbol, period=analysis_period
+                    )
 
-                    # Get price history for PER stability calculation
-                    price_history = self.data_fetcher.get_stock_prices(symbol)
+                    # Get price history for PER stability calculation (shorter period)
+                    price_history = self.data_fetcher.get_stock_prices(
+                        symbol, period=analysis_period
+                    )
 
                     # Prepare data for screening
                     stock_data = {
@@ -453,6 +482,21 @@ class WorkflowRunner:
                     }
 
                     stock_data_list.append(stock_data)
+                    batch_processed.append(financial_info.get("shortName", symbol))
+
+                    # Send progress notification
+                    if (i + 1) % progress_interval == 0 or i + 1 == len(stock_symbols):
+                        current_stock = financial_info.get("shortName", symbol)
+                        recent_batch = batch_processed[
+                            -min(9, len(batch_processed)) :
+                        ]  # Last 9 stocks
+
+                        self.slack_notifier.send_progress_notification(
+                            i + 1, len(stock_symbols), current_stock, recent_batch
+                        )
+
+                        # Clear batch for next progress update
+                        batch_processed = []
 
                 except Exception as e:
                     self.logger.warning(f"Failed to fetch data for {symbol}: {str(e)}")

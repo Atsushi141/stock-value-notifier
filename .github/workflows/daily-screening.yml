@@ -2,9 +2,20 @@ name: Daily Value Stock Screening
 
 on:
   schedule:
-    # Run at 9:00 AM JST (0:00 UTC) on weekdays
+    # Daily screening: Run at 9:00 AM JST (0:00 UTC) on weekdays - curated stocks
     - cron: '0 0 * * 1-5'
+    # Weekly full screening: Run at 6:00 AM JST on Sundays (21:00 UTC Saturday) - all stocks
+    - cron: '0 21 * * 6'
   workflow_dispatch: # Allow manual triggering for testing
+    inputs:
+      screening_mode:
+        description: 'Screening mode'
+        required: false
+        default: 'curated'
+        type: choice
+        options:
+        - curated
+        - all
 
 jobs:
   screen-value-stocks:
@@ -27,6 +38,37 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-
     
+    - name: Set screening mode based on schedule
+      run: |
+        if [ "${{ github.event.schedule }}" = "0 21 * * 6" ]; then
+          echo "SCREENING_MODE=all" >> $GITHUB_ENV
+          echo "ANALYSIS_PERIOD=1y" >> $GITHUB_ENV
+          echo "Weekly full screening mode activated"
+        else
+          echo "SCREENING_MODE=curated" >> $GITHUB_ENV
+          echo "ANALYSIS_PERIOD=3y" >> $GITHUB_ENV
+          echo "Daily curated screening mode activated"
+        fi
+        
+        # Manual trigger override
+        if [ "${{ github.event.inputs.screening_mode }}" != "" ]; then
+          echo "SCREENING_MODE=${{ github.event.inputs.screening_mode }}" >> $GITHUB_ENV
+          if [ "${{ github.event.inputs.screening_mode }}" = "all" ]; then
+            echo "ANALYSIS_PERIOD=1y" >> $GITHUB_ENV
+          else
+            echo "ANALYSIS_PERIOD=3y" >> $GITHUB_ENV
+          fi
+          echo "Manual screening mode: ${{ github.event.inputs.screening_mode }}"
+        fi
+    
+    - name: Download previous data cache
+      if: env.SCREENING_MODE == 'all'
+      uses: actions/download-artifact@v4
+      with:
+        name: stock-data-cache
+        path: cache/
+      continue-on-error: true
+    
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -39,6 +81,14 @@ jobs:
         TZ: Asia/Tokyo
       run: |
         python main.py
+    
+    - name: Upload data cache
+      if: env.SCREENING_MODE == 'all'
+      uses: actions/upload-artifact@v4
+      with:
+        name: stock-data-cache
+        path: cache/
+        retention-days: 7
     
     - name: Upload logs as artifacts
       if: always()

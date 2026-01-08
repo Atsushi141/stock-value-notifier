@@ -226,6 +226,105 @@ class SlackNotifier:
 
         return japanese_msg + "\n\n" + "─" * 50 + "\n\n" + english_msg
 
+    def send_progress_notification(
+        self,
+        current: int,
+        total: int,
+        current_stock: str = "",
+        batch_results: List[str] = None,
+    ) -> bool:
+        """Send progress notification during long-running analysis.
+
+        Args:
+            current: Current progress count
+            total: Total items to process
+            current_stock: Currently processing stock name
+            batch_results: List of stocks processed in current batch
+
+        Returns:
+            bool: True if notification was sent successfully, False otherwise
+        """
+        try:
+            progress_percent = (current / total) * 100
+
+            msg = f"📊 **スクリーニング進捗 / Screening Progress**\n\n"
+            msg += f"進捗: {current:,} / {total:,} 銘柄 ({progress_percent:.1f}%)\n"
+            msg += f"Progress: {current:,} / {total:,} stocks ({progress_percent:.1f}%)\n\n"
+
+            if current_stock:
+                msg += f"現在処理中: {current_stock}\n"
+                msg += f"Currently processing: {current_stock}\n\n"
+
+            # Add progress bar
+            bar_length = 20
+            filled_length = int(bar_length * current // total)
+            bar = "█" * filled_length + "░" * (bar_length - filled_length)
+            msg += f"[{bar}] {progress_percent:.1f}%\n\n"
+
+            if batch_results:
+                msg += f"直近処理銘柄 / Recent stocks:\n"
+                msg += "```\n"
+                for i in range(0, len(batch_results), 3):
+                    row_stocks = batch_results[i : i + 3]
+                    msg += " | ".join(f"{stock:<15}" for stock in row_stocks) + "\n"
+                msg += "```"
+
+            response = self.client.chat_postMessage(
+                channel=self.config.channel,
+                text=msg,
+                username=self.config.username,
+                icon_emoji=":hourglass_flowing_sand:",
+            )
+
+            self.logger.info(f"Sent progress notification: {current}/{total}")
+            return True
+
+        except Exception as e:
+            self.logger.warning(f"Failed to send progress notification: {str(e)}")
+            return False
+
+    def send_analysis_start_notification(self, total_stocks: int, mode: str) -> bool:
+        """Send notification when analysis starts.
+
+        Args:
+            total_stocks: Total number of stocks to analyze
+            mode: Analysis mode ("curated" or "all")
+
+        Returns:
+            bool: True if notification was sent successfully, False otherwise
+        """
+        try:
+            if mode == "all":
+                msg = f"🚀 **週次全銘柄スクリーニング開始**\n\n"
+                msg += f"分析対象: {total_stocks:,} 銘柄\n"
+                msg += f"予想実行時間: 2-4時間\n\n"
+                msg += f"🚀 **Weekly Full Stock Screening Started**\n\n"
+                msg += f"Analyzing: {total_stocks:,} stocks\n"
+                msg += f"Estimated time: 2-4 hours\n\n"
+                msg += f"進捗は100銘柄ごとに通知します。\n"
+                msg += f"Progress will be reported every 100 stocks."
+            else:
+                msg = f"📊 **日次バリュー銘柄スクリーニング開始**\n\n"
+                msg += f"分析対象: {total_stocks:,} 銘柄\n"
+                msg += f"予想実行時間: 10-15分\n\n"
+                msg += f"📊 **Daily Value Stock Screening Started**\n\n"
+                msg += f"Analyzing: {total_stocks:,} stocks\n"
+                msg += f"Estimated time: 10-15 minutes"
+
+            response = self.client.chat_postMessage(
+                channel=self.config.channel,
+                text=msg,
+                username=self.config.username,
+                icon_emoji=":rocket:",
+            )
+
+            self.logger.info(f"Sent analysis start notification for {mode} mode")
+            return True
+
+        except Exception as e:
+            self.logger.warning(f"Failed to send start notification: {str(e)}")
+            return False
+
     def send_error_notification(self, error: Exception) -> bool:
         """Send error notification to administrators.
 

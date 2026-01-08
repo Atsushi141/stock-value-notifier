@@ -17,6 +17,8 @@ import pandas as pd
 import yfinance as yf
 from requests.exceptions import RequestException, HTTPError, ConnectionError, Timeout
 
+from .cache_manager import CacheManager
+
 
 class APIError(Exception):
     """Custom exception for API-related errors"""
@@ -80,6 +82,9 @@ class DataFetcher:
         Note: yfinance doesn't require authentication tokens
         """
         self.logger = logging.getLogger(__name__)
+
+        # Initialize cache manager
+        self.cache_manager = CacheManager()
 
         # Cache for Japanese stock list to avoid repeated API calls
         self._japanese_stocks_cache: Optional[List[str]] = None
@@ -279,10 +284,14 @@ class DataFetcher:
             DataNotFoundError: If no data found for the symbol
             APIError: If data retrieval fails
         """
+        formatted_symbol = self._format_japanese_symbol(symbol)
+
+        # Try to get from cache first
+        cached_data = self.cache_manager.get_cached_financial_info(formatted_symbol)
+        if cached_data is not None:
+            return cached_data
 
         def _fetch_financial_info():
-            formatted_symbol = self._format_japanese_symbol(symbol)
-
             try:
                 ticker = yf.Ticker(formatted_symbol)
                 info = ticker.info
@@ -327,6 +336,11 @@ class DataFetcher:
                     "industry": info.get("industry", ""),
                 }
 
+                # Cache the result
+                self.cache_manager.cache_financial_info(
+                    formatted_symbol, financial_info
+                )
+
                 self.logger.info(f"Retrieved financial info for {formatted_symbol}")
                 return financial_info
 
@@ -339,13 +353,13 @@ class DataFetcher:
             _fetch_financial_info, f"get_financial_info({symbol})"
         )
 
-    def get_dividend_history(self, symbol: str, period: str = "3y") -> pd.DataFrame:
+    def get_dividend_history(self, symbol: str, period: str = "1y") -> pd.DataFrame:
         """
         Get dividend history data for a specific stock
 
         Args:
             symbol: Stock symbol (e.g., "7203" or "7203.T")
-            period: Period for historical data (e.g., "1y", "3y", "5y")
+            period: Period for historical data (e.g., "1y", "2y", "3y") - default 1y for performance
 
         Returns:
             DataFrame with dividend history data
@@ -354,10 +368,14 @@ class DataFetcher:
             DataNotFoundError: If no dividend data found for the symbol
             APIError: If data retrieval fails
         """
+        formatted_symbol = self._format_japanese_symbol(symbol)
+
+        # Try to get from cache first
+        cached_data = self.cache_manager.get_cached_dividend_history(formatted_symbol)
+        if cached_data is not None:
+            return cached_data
 
         def _fetch_dividend_data():
-            formatted_symbol = self._format_japanese_symbol(symbol)
-
             try:
                 ticker = yf.Ticker(formatted_symbol)
                 dividends = ticker.dividends
@@ -365,7 +383,12 @@ class DataFetcher:
                 if dividends.empty:
                     # Not necessarily an error - some stocks don't pay dividends
                     self.logger.info(f"No dividend data found for {formatted_symbol}")
-                    return pd.DataFrame(columns=["Date", "Dividends", "Symbol"])
+                    empty_df = pd.DataFrame(columns=["Date", "Dividends", "Symbol"])
+                    # Cache empty result
+                    self.cache_manager.cache_dividend_history(
+                        formatted_symbol, empty_df
+                    )
+                    return empty_df
 
                 # Filter by period
                 if period:
@@ -377,8 +400,8 @@ class DataFetcher:
                         months = int(period[:-2])
                         start_date = end_date - timedelta(days=months * 30)
                     else:
-                        # Default to 3 years if period format is not recognized
-                        start_date = end_date - timedelta(days=3 * 365)
+                        # Default to 1 year if period format is not recognized
+                        start_date = end_date - timedelta(days=365)
 
                     dividends = dividends[dividends.index >= start_date]
 
@@ -388,6 +411,9 @@ class DataFetcher:
                     columns={"Date": "Date", "Dividends": "Dividends"}
                 )
                 dividend_df["Symbol"] = formatted_symbol
+
+                # Cache the result
+                self.cache_manager.cache_dividend_history(formatted_symbol, dividend_df)
 
                 self.logger.info(
                     f"Retrieved {len(dividend_df)} dividend records for {formatted_symbol}"
@@ -403,14 +429,12 @@ class DataFetcher:
             _fetch_dividend_data, f"get_dividend_history({symbol})"
         )
 
-    def get_japanese_stock_list(self) -> List[str]:
+    def get_japanese_stock_list(self, mode: str = "curated") -> List[str]:
         """
         Get list of Japanese stock symbols from TSE (Tokyo Stock Exchange)
 
-        This method fetches a comprehensive list of Japanese stocks from multiple sources:
-        1. Major indices (Nikkei 225, TOPIX Core 30, etc.)
-        2. Market cap-based selection
-        3. Sector representation
+        Args:
+            mode: "curated" for selected stocks (~130), "all" for all TSE stocks (~3800)
 
         Returns:
             List of Japanese stock symbols with .T suffix
@@ -421,212 +445,260 @@ class DataFetcher:
 
         def _fetch_stock_list():
             # Check cache first
+            cache_key = f"{mode}_stocks"
             if (
-                self._japanese_stocks_cache is not None
+                hasattr(self, f"_{cache_key}_cache")
+                and getattr(self, f"_{cache_key}_cache") is not None
                 and self._cache_timestamp is not None
                 and datetime.now() - self._cache_timestamp < self._cache_duration
             ):
+                cached_stocks = getattr(self, f"_{cache_key}_cache")
                 self.logger.info(
-                    f"Using cached Japanese stock list ({len(self._japanese_stocks_cache)} stocks)"
+                    f"Using cached Japanese stock list ({len(cached_stocks)} stocks, mode: {mode})"
                 )
-                return self._japanese_stocks_cache
+                return cached_stocks
 
             try:
-                # Comprehensive list of Japanese stocks across different market caps and sectors
-                # This includes Nikkei 225 components, TOPIX Core 30, and other major stocks
-
-                # Large Cap Stocks (Market Cap > 1 Trillion JPY)
-                large_cap_stocks = [
-                    "7203.T",  # Toyota Motor
-                    "6758.T",  # Sony Group
-                    "9984.T",  # SoftBank Group
-                    "6861.T",  # Keyence
-                    "8306.T",  # Mitsubishi UFJ Financial Group
-                    "7974.T",  # Nintendo
-                    "9432.T",  # NTT
-                    "4063.T",  # Shin-Etsu Chemical
-                    "6954.T",  # Fanuc
-                    "8035.T",  # Tokyo Electron
-                    "4502.T",  # Takeda Pharmaceutical
-                    "6098.T",  # Recruit Holdings
-                    "4568.T",  # Daiichi Sankyo
-                    "8058.T",  # Mitsubishi Corp
-                    "7267.T",  # Honda Motor
-                    "9983.T",  # Fast Retailing
-                    "4519.T",  # Chugai Pharmaceutical
-                    "6367.T",  # Daikin Industries
-                    "8031.T",  # Mitsui & Co
-                    "4578.T",  # Otsuka Holdings
-                    "9434.T",  # SoftBank
-                    "8316.T",  # Sumitomo Mitsui Financial Group
-                    "6981.T",  # Murata Manufacturing
-                    "4661.T",  # Oriental Land
-                    "6273.T",  # SMC
-                    "7751.T",  # Canon
-                    "6594.T",  # Nidec
-                    "4543.T",  # Terumo
-                    "6762.T",  # TDK
-                    "7733.T",  # Olympus
-                ]
-
-                # Mid Cap Stocks (Market Cap 100B - 1T JPY)
-                mid_cap_stocks = [
-                    "8001.T",  # Itochu
-                    "8002.T",  # Marubeni
-                    "8053.T",  # Sumitomo Corp
-                    "5401.T",  # Nippon Steel
-                    "5411.T",  # JFE Holdings
-                    "3382.T",  # Seven & i Holdings
-                    "2914.T",  # Japan Tobacco
-                    "4452.T",  # Kao
-                    "4911.T",  # Shiseido
-                    "7201.T",  # Nissan Motor
-                    "7202.T",  # Isuzu Motors
-                    "7269.T",  # Suzuki Motor
-                    "7270.T",  # Subaru
-                    "9020.T",  # JR East
-                    "9021.T",  # JR Central
-                    "9022.T",  # JR West
-                    "9501.T",  # Tokyo Electric Power
-                    "9502.T",  # Chubu Electric Power
-                    "9503.T",  # Kansai Electric Power
-                    "3659.T",  # Nexon
-                    "4324.T",  # Dentsu Group
-                    "4385.T",  # Mercari
-                    "6503.T",  # Mitsubishi Electric
-                    "6504.T",  # Fuji Electric
-                    "6701.T",  # NEC
-                    "6702.T",  # Fujitsu
-                    "6724.T",  # Seiko Epson
-                    "6752.T",  # Panasonic Holdings
-                    "6753.T",  # Sharp
-                    "6770.T",  # Alps Alpine
-                ]
-
-                # Technology & Growth Stocks
-                tech_stocks = [
-                    "4755.T",  # Rakuten Group
-                    "3765.T",  # Gung Ho Online Entertainment
-                    "3632.T",  # Gree
-                    "4689.T",  # Yahoo Japan (Z Holdings)
-                    "4704.T",  # Trend Micro
-                    "4751.T",  # CyberAgent
-                    "6178.T",  # Japan Post Holdings
-                    "6326.T",  # Kubota
-                    "6448.T",  # Brother Industries
-                    "6479.T",  # Minebea Mitsumi
-                    "6501.T",  # Hitachi
-                    "6502.T",  # Toshiba
-                    "6645.T",  # Omron
-                    "6674.T",  # GS Yuasa
-                    "6723.T",  # Renesas Electronics
-                    "6758.T",  # Sony Group
-                    "6841.T",  # Yokogawa Electric
-                    "6856.T",  # Horiba
-                    "6857.T",  # Advantest
-                    "6971.T",  # Kyocera
-                ]
-
-                # Financial Sector
-                financial_stocks = [
-                    "8301.T",  # Nomura Holdings
-                    "8303.T",  # SBI Holdings
-                    "8304.T",  # Aozora Bank
-                    "8308.T",  # Resona Holdings
-                    "8309.T",  # Sumitomo Mitsui Trust Holdings
-                    "8354.T",  # Fukuoka Financial Group
-                    "8355.T",  # Shizuoka Bank
-                    "8411.T",  # Mizuho Financial Group
-                    "8473.T",  # SBI Holdings
-                    "8591.T",  # Orix
-                    "8604.T",  # Nomura Real Estate Holdings
-                    "8628.T",  # Matsui Securities
-                    "8630.T",  # SompoHoldings
-                    "8725.T",  # MS&AD Insurance Group Holdings
-                    "8750.T",  # Dai-ichi Life Holdings
-                    "8766.T",  # Tokio Marine Holdings
-                    "8795.T",  # T&D Holdings
-                ]
-
-                # Consumer & Retail
-                consumer_stocks = [
-                    "2269.T",  # Meiji Holdings
-                    "2282.T",  # NH Foods
-                    "2501.T",  # Sapporo Holdings
-                    "2502.T",  # Asahi Group Holdings
-                    "2503.T",  # Kirin Holdings
-                    "2801.T",  # Kikkoman
-                    "2802.T",  # Ajinomoto
-                    "2871.T",  # Nichirei
-                    "2914.T",  # Japan Tobacco
-                    "3086.T",  # J.Front Retailing
-                    "3099.T",  # Isetan Mitsukoshi Holdings
-                    "3141.T",  # Welcia Holdings
-                    "3167.T",  # TOKAIホールディングス
-                    "3349.T",  # Cosmo Energy Holdings
-                    "3401.T",  # Teijin
-                    "3402.T",  # Toray Industries
-                    "3861.T",  # Oji Holdings
-                    "4188.T",  # Mitsubishi Chemical Holdings
-                    "4208.T",  # UBE Industries
-                    "7011.T",  # Mitsubishi Heavy Industries
-                ]
-
-                # Real Estate & Construction
-                real_estate_stocks = [
-                    "1332.T",  # Nippon Suisan Kaisha
-                    "1605.T",  # INPEX
-                    "1801.T",  # Taisei
-                    "1802.T",  # Obayashi
-                    "1803.T",  # Shimizu
-                    "1812.T",  # Kajima
-                    "1925.T",  # Daiwa House Industry
-                    "1928.T",  # Sekisui House
-                    "1963.T",  # JGC Holdings
-                    "2002.T",  # Nisshin Seifun Group
-                    "8802.T",  # Mitsubishi Estate
-                    "8804.T",  # Tokyo Tatemono
-                    "8830.T",  # Sumitomo Realty & Development
-                ]
-
-                # Combine all stock lists
-                all_stocks = (
-                    large_cap_stocks
-                    + mid_cap_stocks
-                    + tech_stocks
-                    + financial_stocks
-                    + consumer_stocks
-                    + real_estate_stocks
-                )
-
-                # Remove duplicates while preserving order
-                unique_stocks = []
-                seen = set()
-                for stock in all_stocks:
-                    if stock not in seen:
-                        unique_stocks.append(stock)
-                        seen.add(stock)
-
-                # Update cache
-                self._japanese_stocks_cache = unique_stocks
-                self._cache_timestamp = datetime.now()
-
-                self.logger.info(
-                    f"Retrieved comprehensive Japanese stock list ({len(unique_stocks)} stocks)"
-                )
-                self.logger.info(
-                    f"Stock distribution: Large Cap: {len(large_cap_stocks)}, "
-                    f"Mid Cap: {len(mid_cap_stocks)}, Tech: {len(tech_stocks)}, "
-                    f"Financial: {len(financial_stocks)}, Consumer: {len(consumer_stocks)}, "
-                    f"Real Estate: {len(real_estate_stocks)}"
-                )
-
-                return unique_stocks
+                if mode == "all":
+                    return self._get_all_tse_stocks()
+                else:
+                    return self._get_curated_stocks()
 
             except Exception as e:
                 self._handle_yfinance_error(e, "Japanese stock list retrieval")
 
-        return self._retry_operation(_fetch_stock_list, "get_japanese_stock_list")
+        return self._retry_operation(
+            _fetch_stock_list, f"get_japanese_stock_list(mode={mode})"
+        )
+
+    def _get_all_tse_stocks(self) -> List[str]:
+        """
+        Get comprehensive list of all TSE stocks by generating stock codes.
+
+        Returns:
+            List of all potential TSE stock symbols (~3800 stocks)
+        """
+        self.logger.warning(
+            "Generating ALL TSE stock codes - this will create ~3800 symbols"
+        )
+
+        all_stocks = []
+
+        # Generate all 4-digit stock codes from 1000-9999
+        for code in range(1000, 10000):
+            # Skip some ranges that are rarely used to reduce API load
+            if self._is_likely_valid_stock_code(code):
+                all_stocks.append(f"{code}.T")
+
+        # Cache the result
+        self._all_stocks_cache = all_stocks
+        self._cache_timestamp = datetime.now()
+
+        self.logger.warning(f"Generated {len(all_stocks)} potential TSE stock codes")
+        self.logger.warning(
+            "WARNING: This will significantly increase execution time and API usage"
+        )
+        return all_stocks
+
+    def _is_likely_valid_stock_code(self, code: int) -> bool:
+        """Check if a stock code is likely to be valid."""
+        # Include most codes but skip some sparse ranges
+        if code < 1300:
+            return code % 5 == 0  # Sample every 5th code in low ranges
+        return True
+
+    def _get_curated_stocks(self) -> List[str]:
+        """Get curated list of major Japanese stocks."""
+        # Comprehensive list of Japanese stocks across different market caps and sectors
+        # This includes Nikkei 225 components, TOPIX Core 30, and other major stocks
+
+        # Large Cap Stocks (Market Cap > 1 Trillion JPY)
+        large_cap_stocks = [
+            "7203.T",  # Toyota Motor
+            "6758.T",  # Sony Group
+            "9984.T",  # SoftBank Group
+            "6861.T",  # Keyence
+            "8306.T",  # Mitsubishi UFJ Financial Group
+            "7974.T",  # Nintendo
+            "9432.T",  # NTT
+            "4063.T",  # Shin-Etsu Chemical
+            "6954.T",  # Fanuc
+            "8035.T",  # Tokyo Electron
+            "4502.T",  # Takeda Pharmaceutical
+            "6098.T",  # Recruit Holdings
+            "4568.T",  # Daiichi Sankyo
+            "8058.T",  # Mitsubishi Corp
+            "7267.T",  # Honda Motor
+            "9983.T",  # Fast Retailing
+            "4519.T",  # Chugai Pharmaceutical
+            "6367.T",  # Daikin Industries
+            "8031.T",  # Mitsui & Co
+            "4578.T",  # Otsuka Holdings
+            "9434.T",  # SoftBank
+            "8316.T",  # Sumitomo Mitsui Financial Group
+            "6981.T",  # Murata Manufacturing
+            "4661.T",  # Oriental Land
+            "6273.T",  # SMC
+            "7751.T",  # Canon
+            "6594.T",  # Nidec
+            "4543.T",  # Terumo
+            "6762.T",  # TDK
+            "7733.T",  # Olympus
+        ]
+
+        # Mid Cap Stocks (Market Cap 100B - 1T JPY)
+        mid_cap_stocks = [
+            "8001.T",  # Itochu
+            "8002.T",  # Marubeni
+            "8053.T",  # Sumitomo Corp
+            "5401.T",  # Nippon Steel
+            "5411.T",  # JFE Holdings
+            "3382.T",  # Seven & i Holdings
+            "2914.T",  # Japan Tobacco
+            "4452.T",  # Kao
+            "4911.T",  # Shiseido
+            "7201.T",  # Nissan Motor
+            "7202.T",  # Isuzu Motors
+            "7269.T",  # Suzuki Motor
+            "7270.T",  # Subaru
+            "9020.T",  # JR East
+            "9021.T",  # JR Central
+            "9022.T",  # JR West
+            "9501.T",  # Tokyo Electric Power
+            "9502.T",  # Chubu Electric Power
+            "9503.T",  # Kansai Electric Power
+            "3659.T",  # Nexon
+            "4324.T",  # Dentsu Group
+            "4385.T",  # Mercari
+            "6503.T",  # Mitsubishi Electric
+            "6504.T",  # Fuji Electric
+            "6701.T",  # NEC
+            "6702.T",  # Fujitsu
+            "6724.T",  # Seiko Epson
+            "6752.T",  # Panasonic Holdings
+            "6753.T",  # Sharp
+            "6770.T",  # Alps Alpine
+        ]
+
+        # Technology & Growth Stocks
+        tech_stocks = [
+            "4755.T",  # Rakuten Group
+            "3765.T",  # Gung Ho Online Entertainment
+            "3632.T",  # Gree
+            "4689.T",  # Yahoo Japan (Z Holdings)
+            "4704.T",  # Trend Micro
+            "4751.T",  # CyberAgent
+            "6178.T",  # Japan Post Holdings
+            "6326.T",  # Kubota
+            "6448.T",  # Brother Industries
+            "6479.T",  # Minebea Mitsumi
+            "6501.T",  # Hitachi
+            "6502.T",  # Toshiba
+            "6645.T",  # Omron
+            "6674.T",  # GS Yuasa
+            "6723.T",  # Renesas Electronics
+            "6758.T",  # Sony Group
+            "6841.T",  # Yokogawa Electric
+            "6856.T",  # Horiba
+            "6857.T",  # Advantest
+            "6971.T",  # Kyocera
+        ]
+
+        # Financial Sector
+        financial_stocks = [
+            "8301.T",  # Nomura Holdings
+            "8303.T",  # SBI Holdings
+            "8304.T",  # Aozora Bank
+            "8308.T",  # Resona Holdings
+            "8309.T",  # Sumitomo Mitsui Trust Holdings
+            "8354.T",  # Fukuoka Financial Group
+            "8355.T",  # Shizuoka Bank
+            "8411.T",  # Mizuho Financial Group
+            "8473.T",  # SBI Holdings
+            "8591.T",  # Orix
+            "8604.T",  # Nomura Real Estate Holdings
+            "8628.T",  # Matsui Securities
+            "8630.T",  # SompoHoldings
+            "8725.T",  # MS&AD Insurance Group Holdings
+            "8750.T",  # Dai-ichi Life Holdings
+            "8766.T",  # Tokio Marine Holdings
+            "8795.T",  # T&D Holdings
+        ]
+
+        # Consumer & Retail
+        consumer_stocks = [
+            "2269.T",  # Meiji Holdings
+            "2282.T",  # NH Foods
+            "2501.T",  # Sapporo Holdings
+            "2502.T",  # Asahi Group Holdings
+            "2503.T",  # Kirin Holdings
+            "2801.T",  # Kikkoman
+            "2802.T",  # Ajinomoto
+            "2871.T",  # Nichirei
+            "2914.T",  # Japan Tobacco
+            "3086.T",  # J.Front Retailing
+            "3099.T",  # Isetan Mitsukoshi Holdings
+            "3141.T",  # Welcia Holdings
+            "3167.T",  # TOKAIホールディングス
+            "3349.T",  # Cosmo Energy Holdings
+            "3401.T",  # Teijin
+            "3402.T",  # Toray Industries
+            "3861.T",  # Oji Holdings
+            "4188.T",  # Mitsubishi Chemical Holdings
+            "4208.T",  # UBE Industries
+            "7011.T",  # Mitsubishi Heavy Industries
+        ]
+
+        # Real Estate & Construction
+        real_estate_stocks = [
+            "1332.T",  # Nippon Suisan Kaisha
+            "1605.T",  # INPEX
+            "1801.T",  # Taisei
+            "1802.T",  # Obayashi
+            "1803.T",  # Shimizu
+            "1812.T",  # Kajima
+            "1925.T",  # Daiwa House Industry
+            "1928.T",  # Sekisui House
+            "1963.T",  # JGC Holdings
+            "2002.T",  # Nisshin Seifun Group
+            "8802.T",  # Mitsubishi Estate
+            "8804.T",  # Tokyo Tatemono
+            "8830.T",  # Sumitomo Realty & Development
+        ]
+
+        # Combine all stock lists
+        all_stocks = (
+            large_cap_stocks
+            + mid_cap_stocks
+            + tech_stocks
+            + financial_stocks
+            + consumer_stocks
+            + real_estate_stocks
+        )
+
+        # Remove duplicates while preserving order
+        unique_stocks = []
+        seen = set()
+        for stock in all_stocks:
+            if stock not in seen:
+                unique_stocks.append(stock)
+                seen.add(stock)
+
+        # Update cache
+        self._japanese_stocks_cache = unique_stocks
+        self._cache_timestamp = datetime.now()
+
+        self.logger.info(
+            f"Retrieved comprehensive Japanese stock list ({len(unique_stocks)} stocks)"
+        )
+        self.logger.info(
+            f"Stock distribution: Large Cap: {len(large_cap_stocks)}, "
+            f"Mid Cap: {len(mid_cap_stocks)}, Tech: {len(tech_stocks)}, "
+            f"Financial: {len(financial_stocks)}, Consumer: {len(consumer_stocks)}, "
+            f"Real Estate: {len(real_estate_stocks)}"
+        )
+
+        return unique_stocks
 
     def get_multiple_stocks_info(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
         """
