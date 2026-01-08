@@ -1,0 +1,4 @@
+# file: /Users/sugai/dev/stock-value-notifier/src/data_fetcher.py
+# hypothesis_version: 6.150.0
+
+[1.0, 365, 401, 403, 404, 429, 500, 502, 503, 504, '%Y-%m-%d', 'Authorization', 'Close', 'Content-Type', 'DividendPayableDate', 'GET', 'High', 'Low', 'NetSales', 'Open', 'OperatingProfit', 'OrdinaryProfit', 'POST', 'Profit', 'TurnoverValue', 'Volume', 'accessToken', 'application/json', 'code', 'coerce', 'daily_quotes', 'date', 'date_from', 'date_to', 'dividend', 'http://', 'https://', 'info', 'message', 'refreshtoken', 'statements']

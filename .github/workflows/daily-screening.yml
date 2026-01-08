@@ -1,0 +1,50 @@
+name: Daily Value Stock Screening
+
+on:
+  schedule:
+    # Run at 9:00 AM JST (0:00 UTC) on weekdays
+    - cron: '0 0 * * 1-5'
+  workflow_dispatch: # Allow manual triggering for testing
+
+jobs:
+  screen-value-stocks:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run value stock screening
+      env:
+        J_QUANTS_API_TOKEN: ${{ secrets.J_QUANTS_API_TOKEN }}
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+        TZ: Asia/Tokyo
+      run: |
+        python main.py
+    
+    - name: Upload logs as artifacts
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: screening-logs-${{ github.run_number }}
+        path: logs/
+        retention-days: 30

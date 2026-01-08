@@ -1,0 +1,4 @@
+# file: /Users/sugai/dev/stock-value-notifier/src/data_fetcher.py
+# hypothesis_version: 6.150.0
+
+[0.1, 1.0, 365, 404, 429, '.', '.NS', '.OS', '.T', '3y', '4063.T', '4502.T', '4519.T', '4568.T', '4578.T', '6098.T', '6367.T', '6758.T', '6861.T', '6954.T', '7203.T', '7267.T', '7974.T', '8031.T', '8035.T', '8058.T', '8306.T', '9432.T', '9983.T', '9984.T', 'Close', 'Date', 'Dividends', 'High', 'JPY', 'Low', 'NSE', 'OSE', 'Open', 'Symbol', 'TSE', 'Volume', 'currency', 'currentPrice', 'debtToEquity', 'dividendYield', 'earningsGrowth', 'exchange', 'forwardPE', 'industry', 'longName', 'marketCap', 'mo', 'operatingMargins', 'payoutRatio', 'previousClose', 'priceToBook', 'profitMargins', 'response', 'returnOnAssets', 'returnOnEquity', 'revenueGrowth', 'sector', 'shortName', 'symbol', 'totalRevenue', 'trailingPE', 'y']
