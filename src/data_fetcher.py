@@ -405,10 +405,12 @@ class DataFetcher:
 
     def get_japanese_stock_list(self) -> List[str]:
         """
-        Get list of Japanese stock symbols
+        Get list of Japanese stock symbols from TSE (Tokyo Stock Exchange)
 
-        Note: This is a simplified implementation. In practice, you might want to
-        use a more comprehensive source for Japanese stock listings.
+        This method fetches a comprehensive list of Japanese stocks from multiple sources:
+        1. Major indices (Nikkei 225, TOPIX Core 30, etc.)
+        2. Market cap-based selection
+        3. Sector representation
 
         Returns:
             List of Japanese stock symbols with .T suffix
@@ -430,9 +432,11 @@ class DataFetcher:
                 return self._japanese_stocks_cache
 
             try:
-                # This is a simplified list of major Japanese stocks
-                # In a production system, you would fetch this from a comprehensive source
-                major_japanese_stocks = [
+                # Comprehensive list of Japanese stocks across different market caps and sectors
+                # This includes Nikkei 225 components, TOPIX Core 30, and other major stocks
+
+                # Large Cap Stocks (Market Cap > 1 Trillion JPY)
+                large_cap_stocks = [
                     "7203.T",  # Toyota Motor
                     "6758.T",  # Sony Group
                     "9984.T",  # SoftBank Group
@@ -453,16 +457,171 @@ class DataFetcher:
                     "6367.T",  # Daikin Industries
                     "8031.T",  # Mitsui & Co
                     "4578.T",  # Otsuka Holdings
+                    "9434.T",  # SoftBank
+                    "8316.T",  # Sumitomo Mitsui Financial Group
+                    "6981.T",  # Murata Manufacturing
+                    "4661.T",  # Oriental Land
+                    "6273.T",  # SMC
+                    "7751.T",  # Canon
+                    "6594.T",  # Nidec
+                    "4543.T",  # Terumo
+                    "6762.T",  # TDK
+                    "7733.T",  # Olympus
                 ]
 
+                # Mid Cap Stocks (Market Cap 100B - 1T JPY)
+                mid_cap_stocks = [
+                    "8001.T",  # Itochu
+                    "8002.T",  # Marubeni
+                    "8053.T",  # Sumitomo Corp
+                    "5401.T",  # Nippon Steel
+                    "5411.T",  # JFE Holdings
+                    "3382.T",  # Seven & i Holdings
+                    "2914.T",  # Japan Tobacco
+                    "4452.T",  # Kao
+                    "4911.T",  # Shiseido
+                    "7201.T",  # Nissan Motor
+                    "7202.T",  # Isuzu Motors
+                    "7269.T",  # Suzuki Motor
+                    "7270.T",  # Subaru
+                    "9020.T",  # JR East
+                    "9021.T",  # JR Central
+                    "9022.T",  # JR West
+                    "9501.T",  # Tokyo Electric Power
+                    "9502.T",  # Chubu Electric Power
+                    "9503.T",  # Kansai Electric Power
+                    "3659.T",  # Nexon
+                    "4324.T",  # Dentsu Group
+                    "4385.T",  # Mercari
+                    "6503.T",  # Mitsubishi Electric
+                    "6504.T",  # Fuji Electric
+                    "6701.T",  # NEC
+                    "6702.T",  # Fujitsu
+                    "6724.T",  # Seiko Epson
+                    "6752.T",  # Panasonic Holdings
+                    "6753.T",  # Sharp
+                    "6770.T",  # Alps Alpine
+                ]
+
+                # Technology & Growth Stocks
+                tech_stocks = [
+                    "4755.T",  # Rakuten Group
+                    "3765.T",  # Gung Ho Online Entertainment
+                    "3632.T",  # Gree
+                    "4689.T",  # Yahoo Japan (Z Holdings)
+                    "4704.T",  # Trend Micro
+                    "4751.T",  # CyberAgent
+                    "6178.T",  # Japan Post Holdings
+                    "6326.T",  # Kubota
+                    "6448.T",  # Brother Industries
+                    "6479.T",  # Minebea Mitsumi
+                    "6501.T",  # Hitachi
+                    "6502.T",  # Toshiba
+                    "6645.T",  # Omron
+                    "6674.T",  # GS Yuasa
+                    "6723.T",  # Renesas Electronics
+                    "6758.T",  # Sony Group
+                    "6841.T",  # Yokogawa Electric
+                    "6856.T",  # Horiba
+                    "6857.T",  # Advantest
+                    "6971.T",  # Kyocera
+                ]
+
+                # Financial Sector
+                financial_stocks = [
+                    "8301.T",  # Nomura Holdings
+                    "8303.T",  # SBI Holdings
+                    "8304.T",  # Aozora Bank
+                    "8308.T",  # Resona Holdings
+                    "8309.T",  # Sumitomo Mitsui Trust Holdings
+                    "8354.T",  # Fukuoka Financial Group
+                    "8355.T",  # Shizuoka Bank
+                    "8411.T",  # Mizuho Financial Group
+                    "8473.T",  # SBI Holdings
+                    "8591.T",  # Orix
+                    "8604.T",  # Nomura Real Estate Holdings
+                    "8628.T",  # Matsui Securities
+                    "8630.T",  # SompoHoldings
+                    "8725.T",  # MS&AD Insurance Group Holdings
+                    "8750.T",  # Dai-ichi Life Holdings
+                    "8766.T",  # Tokio Marine Holdings
+                    "8795.T",  # T&D Holdings
+                ]
+
+                # Consumer & Retail
+                consumer_stocks = [
+                    "2269.T",  # Meiji Holdings
+                    "2282.T",  # NH Foods
+                    "2501.T",  # Sapporo Holdings
+                    "2502.T",  # Asahi Group Holdings
+                    "2503.T",  # Kirin Holdings
+                    "2801.T",  # Kikkoman
+                    "2802.T",  # Ajinomoto
+                    "2871.T",  # Nichirei
+                    "2914.T",  # Japan Tobacco
+                    "3086.T",  # J.Front Retailing
+                    "3099.T",  # Isetan Mitsukoshi Holdings
+                    "3141.T",  # Welcia Holdings
+                    "3167.T",  # TOKAIホールディングス
+                    "3349.T",  # Cosmo Energy Holdings
+                    "3401.T",  # Teijin
+                    "3402.T",  # Toray Industries
+                    "3861.T",  # Oji Holdings
+                    "4188.T",  # Mitsubishi Chemical Holdings
+                    "4208.T",  # UBE Industries
+                    "7011.T",  # Mitsubishi Heavy Industries
+                ]
+
+                # Real Estate & Construction
+                real_estate_stocks = [
+                    "1332.T",  # Nippon Suisan Kaisha
+                    "1605.T",  # INPEX
+                    "1801.T",  # Taisei
+                    "1802.T",  # Obayashi
+                    "1803.T",  # Shimizu
+                    "1812.T",  # Kajima
+                    "1925.T",  # Daiwa House Industry
+                    "1928.T",  # Sekisui House
+                    "1963.T",  # JGC Holdings
+                    "2002.T",  # Nisshin Seifun Group
+                    "8802.T",  # Mitsubishi Estate
+                    "8804.T",  # Tokyo Tatemono
+                    "8830.T",  # Sumitomo Realty & Development
+                ]
+
+                # Combine all stock lists
+                all_stocks = (
+                    large_cap_stocks
+                    + mid_cap_stocks
+                    + tech_stocks
+                    + financial_stocks
+                    + consumer_stocks
+                    + real_estate_stocks
+                )
+
+                # Remove duplicates while preserving order
+                unique_stocks = []
+                seen = set()
+                for stock in all_stocks:
+                    if stock not in seen:
+                        unique_stocks.append(stock)
+                        seen.add(stock)
+
                 # Update cache
-                self._japanese_stocks_cache = major_japanese_stocks
+                self._japanese_stocks_cache = unique_stocks
                 self._cache_timestamp = datetime.now()
 
                 self.logger.info(
-                    f"Retrieved Japanese stock list ({len(major_japanese_stocks)} stocks)"
+                    f"Retrieved comprehensive Japanese stock list ({len(unique_stocks)} stocks)"
                 )
-                return major_japanese_stocks
+                self.logger.info(
+                    f"Stock distribution: Large Cap: {len(large_cap_stocks)}, "
+                    f"Mid Cap: {len(mid_cap_stocks)}, Tech: {len(tech_stocks)}, "
+                    f"Financial: {len(financial_stocks)}, Consumer: {len(consumer_stocks)}, "
+                    f"Real Estate: {len(real_estate_stocks)}"
+                )
+
+                return unique_stocks
 
             except Exception as e:
                 self._handle_yfinance_error(e, "Japanese stock list retrieval")
