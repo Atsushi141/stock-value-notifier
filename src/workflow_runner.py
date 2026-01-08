@@ -481,7 +481,7 @@ class WorkflowRunner:
                 self.log_manager.log_system_health(
                     "screening", "WARNING", {"reason": "no_data"}
                 )
-                self.slack_notifier.send_no_stocks_notification()
+                self.slack_notifier.send_no_stocks_notification([])
                 return
 
             stock_df = pd.DataFrame(stock_data_list)
@@ -512,6 +512,9 @@ class WorkflowRunner:
             # Send notification
             notification_start = datetime.now()
 
+            # Extract all stock names for notification
+            all_stock_names = [stock_data["name"] for stock_data in stock_data_list]
+
             if value_stocks:
                 self.logger.info(f"Found {len(value_stocks)} value stocks")
                 # Log details of found stocks
@@ -524,7 +527,7 @@ class WorkflowRunner:
                     )
 
                 success = self.slack_notifier.send_value_stocks_notification(
-                    value_stocks
+                    value_stocks, all_stock_names
                 )
                 if not success:
                     self.logger.error("Failed to send value stocks notification")
@@ -539,7 +542,9 @@ class WorkflowRunner:
                     )
             else:
                 self.logger.info("No value stocks found today")
-                success = self.slack_notifier.send_no_stocks_notification()
+                success = self.slack_notifier.send_no_stocks_notification(
+                    all_stock_names
+                )
                 if not success:
                     self.logger.error("Failed to send no stocks notification")
                     self.log_manager.log_system_health(

@@ -22,20 +22,23 @@ class SlackNotifier:
         self.client = WebClient(token=config.token)
         self.logger = logging.getLogger(__name__)
 
-    def send_value_stocks_notification(self, stocks: List[ValueStock]) -> bool:
+    def send_value_stocks_notification(
+        self, stocks: List[ValueStock], all_stocks: List[str] = None
+    ) -> bool:
         """Send notification about found value stocks.
 
         Args:
             stocks: List of ValueStock objects to notify about
+            all_stocks: List of all stock names that were analyzed
 
         Returns:
             bool: True if notification was sent successfully, False otherwise
         """
         if not stocks:
-            return self.send_no_stocks_notification()
+            return self.send_no_stocks_notification(all_stocks)
 
         try:
-            message = self.format_value_stocks_message_bilingual(stocks)
+            message = self.format_value_stocks_message_bilingual(stocks, all_stocks)
 
             response = self.client.chat_postMessage(
                 channel=self.config.channel,
@@ -56,14 +59,17 @@ class SlackNotifier:
             self.logger.error(f"Unexpected error sending notification: {str(e)}")
             return False
 
-    def send_no_stocks_notification(self) -> bool:
+    def send_no_stocks_notification(self, all_stocks: List[str] = None) -> bool:
         """Send notification when no value stocks are found.
+
+        Args:
+            all_stocks: List of all stock names that were analyzed
 
         Returns:
             bool: True if notification was sent successfully, False otherwise
         """
         try:
-            message = self.format_no_stocks_message_bilingual()
+            message = self.format_no_stocks_message_bilingual(all_stocks)
 
             response = self.client.chat_postMessage(
                 channel=self.config.channel,
@@ -86,29 +92,35 @@ class SlackNotifier:
             )
             return False
 
-    def format_value_stocks_message_bilingual(self, stocks: List[ValueStock]) -> str:
+    def format_value_stocks_message_bilingual(
+        self, stocks: List[ValueStock], all_stocks: List[str] = None
+    ) -> str:
         """Format value stocks message in both Japanese and English.
 
         Args:
             stocks: List of ValueStock objects to format
+            all_stocks: List of all stock names that were analyzed
 
         Returns:
             str: Formatted bilingual message with Japanese first, then English
         """
         # Japanese message first (as per requirement 3.3)
-        japanese_msg = self._format_japanese_stocks_message(stocks)
+        japanese_msg = self._format_japanese_stocks_message(stocks, all_stocks)
 
         # English message second
-        english_msg = self._format_english_stocks_message(stocks)
+        english_msg = self._format_english_stocks_message(stocks, all_stocks)
 
         # Combine with clear separator
         return japanese_msg + "\n" + "─" * 50 + "\n\n" + english_msg
 
-    def _format_japanese_stocks_message(self, stocks: List[ValueStock]) -> str:
+    def _format_japanese_stocks_message(
+        self, stocks: List[ValueStock], all_stocks: List[str] = None
+    ) -> str:
         """Format Japanese stocks message with readable formatting.
 
         Args:
             stocks: List of ValueStock objects to format
+            all_stocks: List of all stock names that were analyzed
 
         Returns:
             str: Formatted Japanese message
@@ -126,13 +138,26 @@ class SlackNotifier:
             msg += f"増収: {stock.revenue_growth_years}年 | "
             msg += f"増益: {stock.profit_growth_years}年\n\n"
 
+        # Add analyzed stocks summary
+        if all_stocks:
+            msg += f"\n📊 **分析対象銘柄** ({len(all_stocks)}銘柄)\n"
+            msg += "```\n"
+            # Display stocks in columns for better readability
+            for i in range(0, len(all_stocks), 3):
+                row_stocks = all_stocks[i : i + 3]
+                msg += " | ".join(f"{stock:<20}" for stock in row_stocks) + "\n"
+            msg += "```\n"
+
         return msg
 
-    def _format_english_stocks_message(self, stocks: List[ValueStock]) -> str:
+    def _format_english_stocks_message(
+        self, stocks: List[ValueStock], all_stocks: List[str] = None
+    ) -> str:
         """Format English stocks message with readable formatting.
 
         Args:
             stocks: List of ValueStock objects to format
+            all_stocks: List of all stock names that were analyzed
 
         Returns:
             str: Formatted English message
@@ -150,10 +175,23 @@ class SlackNotifier:
             msg += f"Revenue: {stock.revenue_growth_years}yrs | "
             msg += f"Profit: {stock.profit_growth_years}yrs\n\n"
 
+        # Add analyzed stocks summary
+        if all_stocks:
+            msg += f"\n📊 **Analyzed Stocks** ({len(all_stocks)} stocks)\n"
+            msg += "```\n"
+            # Display stocks in columns for better readability
+            for i in range(0, len(all_stocks), 3):
+                row_stocks = all_stocks[i : i + 3]
+                msg += " | ".join(f"{stock:<20}" for stock in row_stocks) + "\n"
+            msg += "```\n"
+
         return msg
 
-    def format_no_stocks_message_bilingual(self) -> str:
+    def format_no_stocks_message_bilingual(self, all_stocks: List[str] = None) -> str:
         """Format no stocks found message in both Japanese and English.
+
+        Args:
+            all_stocks: List of all stock names that were analyzed
 
         Returns:
             str: Formatted bilingual message with Japanese first, then English
@@ -165,6 +203,26 @@ class SlackNotifier:
         english_msg = "📊 **Today's Results**\n\n"
         english_msg += "No value stocks found today.\n"
         english_msg += "We'll continue monitoring tomorrow."
+
+        # Add analyzed stocks summary
+        if all_stocks:
+            japanese_msg += f"\n\n📊 **分析対象銘柄** ({len(all_stocks)}銘柄)\n"
+            japanese_msg += "```\n"
+            # Display stocks in columns for better readability
+            for i in range(0, len(all_stocks), 3):
+                row_stocks = all_stocks[i : i + 3]
+                japanese_msg += (
+                    " | ".join(f"{stock:<20}" for stock in row_stocks) + "\n"
+                )
+            japanese_msg += "```"
+
+            english_msg += f"\n\n📊 **Analyzed Stocks** ({len(all_stocks)} stocks)\n"
+            english_msg += "```\n"
+            # Display stocks in columns for better readability
+            for i in range(0, len(all_stocks), 3):
+                row_stocks = all_stocks[i : i + 3]
+                english_msg += " | ".join(f"{stock:<20}" for stock in row_stocks) + "\n"
+            english_msg += "```"
 
         return japanese_msg + "\n\n" + "─" * 50 + "\n\n" + english_msg
 
