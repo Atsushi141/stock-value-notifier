@@ -366,6 +366,13 @@ stock-value-notifier/
 
 ## 🔄 更新履歴
 
+### v1.0.1 (2024-01-XX)
+- GitHub Actions の非推奨アクション修正
+  - `actions/setup-python@v4` → `v5` に更新
+  - `actions/cache@v3` → `v4` に更新  
+  - `actions/upload-artifact@v3` → `v4` に更新
+- 不要な環境変数 `J_QUANTS_API_TOKEN` を削除
+
 ### v1.0.0 (2024-01-XX)
 - 初回リリース
 - yfinanceを使用したデータ取得機能
