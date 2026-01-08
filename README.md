@@ -29,7 +29,7 @@
 
 - GitHub アカウント
 - Slack ワークスペースとBot Token
-- Python 3.9+ (ローカル開発の場合)
+- Python 3.10+ (ローカル開発の場合)
 
 ### 1. リポジトリのフォーク
 
@@ -257,6 +257,16 @@ python main.py
 3. 値に余分なスペースや改行が含まれていないか確認
 ```
 
+#### 5. Python バージョン互換性エラー
+
+**症状**: "TypeError: unsupported operand type(s) for |" エラー
+
+**原因**: yfinance ライブラリが Python 3.10+ の型注釈を使用
+
+**解決方法**: 
+- GitHub Actions では Python 3.10 を使用（自動設定済み）
+- ローカル開発では Python 3.10+ を使用してください
+
 ### ログの確認方法
 
 #### GitHub Actions ログ
@@ -365,6 +375,11 @@ stock-value-notifier/
 3. **ログ確認**: GitHub ActionsのログやArtifactを確認
 
 ## 🔄 更新履歴
+
+### v1.0.2 (2024-01-XX)
+- Python バージョンを 3.9 から 3.10 に更新
+  - yfinance ライブラリの型注釈互換性のため
+  - Python 3.10+ の Union 型構文 (`|`) をサポート
 
 ### v1.0.1 (2024-01-XX)
 - GitHub Actions の非推奨アクション修正
