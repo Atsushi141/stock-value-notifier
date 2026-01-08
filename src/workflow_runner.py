@@ -22,6 +22,7 @@ from .config_manager import ConfigManager, Config
 from .data_fetcher import DataFetcher
 from .screening_engine import ScreeningEngine
 from .slack_notifier import SlackNotifier
+from .rotation_manager import RotationManager
 from .models import ValueStock
 
 
@@ -230,6 +231,7 @@ class WorkflowRunner:
         self.data_fetcher: Optional[DataFetcher] = None
         self.screening_engine: Optional[ScreeningEngine] = None
         self.slack_notifier: Optional[SlackNotifier] = None
+        self.rotation_manager: Optional[RotationManager] = None
 
         # Performance tracking
         self.start_time: Optional[datetime] = None
@@ -410,25 +412,52 @@ class WorkflowRunner:
             # Check if full screening mode is enabled via environment variable
             screening_mode = os.getenv(
                 "SCREENING_MODE", "curated"
-            )  # "curated" or "all"
+            )  # "curated", "all", or "rotation"
             analysis_period = os.getenv("ANALYSIS_PERIOD", "3y")  # "1y", "2y", "3y"
 
             if screening_mode == "all":
                 self.logger.warning(
                     "Full screening mode enabled - this will analyze ~3800 stocks and may take several hours"
                 )
+            elif screening_mode == "rotation":
+                self.logger.info(
+                    "Rotation mode enabled - analyzing a subset of stocks based on weekday rotation"
+                )
 
-            stock_symbols = self.data_fetcher.get_japanese_stock_list(
-                mode=screening_mode
-            )
+            # Get list of Japanese stocks to screen
+            if screening_mode == "rotation":
+                # For rotation mode, get all stocks first, then filter by rotation
+                all_stock_symbols = self.data_fetcher.get_japanese_stock_list(
+                    mode="all"
+                )
+                stock_symbols = self.rotation_manager.get_stocks_for_today(
+                    all_stock_symbols
+                )
+
+                # Get rotation info for notifications
+                rotation_info = self.rotation_manager.get_group_info()
+                self.logger.info(
+                    f"Rotation mode: Processing {rotation_info['progress_text_jp']} "
+                    f"({len(stock_symbols)} stocks)"
+                )
+            else:
+                stock_symbols = self.data_fetcher.get_japanese_stock_list(
+                    mode=screening_mode
+                )
             self.logger.info(
                 f"Screening {len(stock_symbols)} stocks (mode: {screening_mode}, period: {analysis_period})"
             )
 
             # Send start notification
-            self.slack_notifier.send_analysis_start_notification(
-                len(stock_symbols), screening_mode
-            )
+            if screening_mode == "rotation":
+                rotation_info = self.rotation_manager.get_group_info()
+                self.slack_notifier.send_analysis_start_notification(
+                    len(stock_symbols), screening_mode, rotation_info
+                )
+            else:
+                self.slack_notifier.send_analysis_start_notification(
+                    len(stock_symbols), screening_mode
+                )
 
             # Log data fetching start
             data_fetch_start = datetime.now()
@@ -438,7 +467,9 @@ class WorkflowRunner:
             failed_symbols = []
             batch_processed = []
             progress_interval = (
-                100 if screening_mode == "all" else 50
+                100
+                if screening_mode == "all"
+                else 100 if screening_mode == "rotation" else 50
             )  # Progress notification interval
 
             for i, symbol in enumerate(stock_symbols):
@@ -570,8 +601,13 @@ class WorkflowRunner:
                         f"Score: {stock.score:.1f}"
                     )
 
+                # Include rotation info in notification if in rotation mode
+                rotation_info = None
+                if screening_mode == "rotation":
+                    rotation_info = self.rotation_manager.get_group_info()
+
                 success = self.slack_notifier.send_value_stocks_notification(
-                    value_stocks, all_stock_names
+                    value_stocks, all_stock_names, rotation_info
                 )
                 if not success:
                     self.logger.error("Failed to send value stocks notification")
@@ -586,8 +622,14 @@ class WorkflowRunner:
                     )
             else:
                 self.logger.info("No value stocks found today")
+
+                # Include rotation info in notification if in rotation mode
+                rotation_info = None
+                if screening_mode == "rotation":
+                    rotation_info = self.rotation_manager.get_group_info()
+
                 success = self.slack_notifier.send_no_stocks_notification(
-                    all_stock_names
+                    all_stock_names, rotation_info
                 )
                 if not success:
                     self.logger.error("Failed to send no stocks notification")
@@ -658,6 +700,9 @@ class WorkflowRunner:
 
             self.slack_notifier = SlackNotifier(self.config.slack_config)
             self.log_manager.log_system_health("slack_notifier", "INITIALIZED")
+
+            self.rotation_manager = RotationManager()
+            self.log_manager.log_system_health("rotation_manager", "INITIALIZED")
 
             self.logger.info("Environment setup completed successfully")
             self.log_manager.log_system_health("environment", "READY")
