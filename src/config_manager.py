@@ -7,6 +7,7 @@ import os
 import logging
 from dataclasses import dataclass
 from typing import Optional
+from .models import RotationConfig
 
 
 @dataclass
@@ -36,6 +37,7 @@ class Config:
 
     slack_config: SlackConfig
     screening_config: ScreeningConfig
+    rotation_config: RotationConfig
 
 
 class ConfigManager:
@@ -83,9 +85,13 @@ class ConfigManager:
         # Create screening configuration with validation
         screening_config = self.get_screening_config()
 
+        # Create rotation configuration with validation
+        rotation_config = self.get_rotation_config()
+
         return Config(
             slack_config=slack_config,
             screening_config=screening_config,
+            rotation_config=rotation_config,
         )
 
     def validate_config(self, config: Config) -> bool:
@@ -105,6 +111,10 @@ class ConfigManager:
 
             # Validate screening configuration
             if not self._validate_screening_config(config.screening_config):
+                return False
+
+            # Validate rotation configuration
+            if not self._validate_rotation_config(config.rotation_config):
                 return False
 
             return True
@@ -226,6 +236,54 @@ class ConfigManager:
             icon_emoji=os.getenv("SLACK_ICON_EMOJI", SlackConfig.icon_emoji),
         )
 
+    def get_rotation_config(self) -> RotationConfig:
+        """
+        Load and validate rotation configuration from environment variables.
+        Uses default values for invalid or missing configuration.
+
+        Returns:
+            RotationConfig: Validated rotation configuration
+
+        Note: Implements requirements 7.6, 7.7 - rotation mode configuration
+        """
+        config = RotationConfig()
+
+        # Load SCREENING_MODE to determine if rotation is enabled
+        screening_mode = os.getenv("SCREENING_MODE", "curated").lower()
+        config.enabled = screening_mode == "rotation"
+
+        if config.enabled:
+            self.logger.info("Rotation mode enabled via SCREENING_MODE=rotation")
+
+        # Load and validate total_groups (ROTATION_GROUPS)
+        try:
+            total_groups = int(os.getenv("ROTATION_GROUPS", config.total_groups))
+            if total_groups <= 0 or total_groups > 10:  # Reasonable limits
+                self.logger.warning(
+                    f"Invalid ROTATION_GROUPS value: {total_groups}. "
+                    f"Using default: {config.total_groups}"
+                )
+            else:
+                config.total_groups = total_groups
+        except (ValueError, TypeError):
+            self.logger.warning(
+                f"Invalid ROTATION_GROUPS format. Using default: {config.total_groups}"
+            )
+
+        # Load and validate group_distribution_method
+        distribution_method = os.getenv(
+            "GROUP_DISTRIBUTION_METHOD", config.group_distribution_method
+        ).lower()
+        if distribution_method in ["sector", "market_cap"]:
+            config.group_distribution_method = distribution_method
+        else:
+            self.logger.warning(
+                f"Invalid GROUP_DISTRIBUTION_METHOD: {distribution_method}. "
+                f"Using default: {config.group_distribution_method}"
+            )
+
+        return config
+
     def _validate_slack_config(self, slack_config: SlackConfig) -> bool:
         """
         Validate Slack configuration.
@@ -297,3 +355,53 @@ class ConfigManager:
             return False
 
         return True
+
+    def _validate_rotation_config(self, rotation_config: RotationConfig) -> bool:
+        """
+        Validate rotation configuration values.
+
+        Args:
+            rotation_config: Rotation configuration to validate
+
+        Returns:
+            bool: True if valid, False otherwise
+        """
+        if rotation_config.total_groups <= 0:
+            self.logger.error(
+                f"Invalid total_groups value: {rotation_config.total_groups}"
+            )
+            return False
+
+        if rotation_config.total_groups > 10:
+            self.logger.error(
+                f"Total groups too high: {rotation_config.total_groups} (max: 10)"
+            )
+            return False
+
+        if rotation_config.group_distribution_method not in ["sector", "market_cap"]:
+            self.logger.error(
+                f"Invalid group_distribution_method: {rotation_config.group_distribution_method}"
+            )
+            return False
+
+        return True
+
+    def get_screening_mode(self) -> str:
+        """
+        Get the current screening mode from environment variables.
+
+        Returns:
+            str: Screening mode ("curated", "all", or "rotation")
+
+        Note: Implements requirement 7.6 - compatibility with existing modes
+        """
+        mode = os.getenv("SCREENING_MODE", "curated").lower()
+
+        valid_modes = ["curated", "all", "rotation"]
+        if mode not in valid_modes:
+            self.logger.warning(
+                f"Invalid SCREENING_MODE: {mode}. Using default: curated"
+            )
+            return "curated"
+
+        return mode

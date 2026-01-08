@@ -23,22 +23,28 @@ class SlackNotifier:
         self.logger = logging.getLogger(__name__)
 
     def send_value_stocks_notification(
-        self, stocks: List[ValueStock], all_stocks: List[str] = None
+        self,
+        stocks: List[ValueStock],
+        all_stocks: List[str] = None,
+        group_info: dict = None,
     ) -> bool:
         """Send notification about found value stocks.
 
         Args:
             stocks: List of ValueStock objects to notify about
             all_stocks: List of all stock names that were analyzed
+            group_info: Optional rotation group information for progress display
 
         Returns:
             bool: True if notification was sent successfully, False otherwise
         """
         if not stocks:
-            return self.send_no_stocks_notification(all_stocks)
+            return self.send_no_stocks_notification(all_stocks, group_info)
 
         try:
-            message = self.format_value_stocks_message_bilingual(stocks, all_stocks)
+            message = self.format_value_stocks_message_bilingual(
+                stocks, all_stocks, group_info
+            )
 
             response = self.client.chat_postMessage(
                 channel=self.config.channel,
@@ -59,17 +65,20 @@ class SlackNotifier:
             self.logger.error(f"Unexpected error sending notification: {str(e)}")
             return False
 
-    def send_no_stocks_notification(self, all_stocks: List[str] = None) -> bool:
+    def send_no_stocks_notification(
+        self, all_stocks: List[str] = None, group_info: dict = None
+    ) -> bool:
         """Send notification when no value stocks are found.
 
         Args:
             all_stocks: List of all stock names that were analyzed
+            group_info: Optional rotation group information for progress display
 
         Returns:
             bool: True if notification was sent successfully, False otherwise
         """
         try:
-            message = self.format_no_stocks_message_bilingual(all_stocks)
+            message = self.format_no_stocks_message_bilingual(all_stocks, group_info)
 
             response = self.client.chat_postMessage(
                 channel=self.config.channel,
@@ -93,39 +102,55 @@ class SlackNotifier:
             return False
 
     def format_value_stocks_message_bilingual(
-        self, stocks: List[ValueStock], all_stocks: List[str] = None
+        self,
+        stocks: List[ValueStock],
+        all_stocks: List[str] = None,
+        group_info: dict = None,
     ) -> str:
         """Format value stocks message in both Japanese and English.
 
         Args:
             stocks: List of ValueStock objects to format
             all_stocks: List of all stock names that were analyzed
+            group_info: Optional rotation group information for progress display
 
         Returns:
             str: Formatted bilingual message with Japanese first, then English
         """
         # Japanese message first (as per requirement 3.3)
-        japanese_msg = self._format_japanese_stocks_message(stocks, all_stocks)
+        japanese_msg = self._format_japanese_stocks_message(
+            stocks, all_stocks, group_info
+        )
 
         # English message second
-        english_msg = self._format_english_stocks_message(stocks, all_stocks)
+        english_msg = self._format_english_stocks_message(
+            stocks, all_stocks, group_info
+        )
 
         # Combine with clear separator
         return japanese_msg + "\n" + "─" * 50 + "\n\n" + english_msg
 
     def _format_japanese_stocks_message(
-        self, stocks: List[ValueStock], all_stocks: List[str] = None
+        self,
+        stocks: List[ValueStock],
+        all_stocks: List[str] = None,
+        group_info: dict = None,
     ) -> str:
         """Format Japanese stocks message with readable formatting.
 
         Args:
             stocks: List of ValueStock objects to format
             all_stocks: List of all stock names that were analyzed
+            group_info: Optional rotation group information for progress display
 
         Returns:
             str: Formatted Japanese message
         """
-        msg = "🎯 **本日のバリュー銘柄**\n\n"
+        # Add rotation group info if provided (要件 7.5)
+        if group_info:
+            msg = f"🎯 **本日のバリュー銘柄** - {group_info['progress_text_jp']}\n\n"
+        else:
+            msg = "🎯 **本日のバリュー銘柄**\n\n"
 
         for i, stock in enumerate(stocks, 1):
             msg += f"**{i}. {stock.name} ({stock.code})**\n"
@@ -138,9 +163,12 @@ class SlackNotifier:
             msg += f"増収: {stock.revenue_growth_years}年 | "
             msg += f"増益: {stock.profit_growth_years}年\n\n"
 
-        # Add analyzed stocks summary
+        # Add analyzed stocks summary with rotation info
         if all_stocks:
-            msg += f"\n📊 **分析対象銘柄** ({len(all_stocks)}銘柄)\n"
+            if group_info:
+                msg += f"\n📊 **本日の分析対象銘柄** ({len(all_stocks)}銘柄) - {group_info['weekday_jp']}\n"
+            else:
+                msg += f"\n📊 **分析対象銘柄** ({len(all_stocks)}銘柄)\n"
             msg += "```\n"
             # Display stocks in columns for better readability
             for i in range(0, len(all_stocks), 3):
@@ -151,18 +179,26 @@ class SlackNotifier:
         return msg
 
     def _format_english_stocks_message(
-        self, stocks: List[ValueStock], all_stocks: List[str] = None
+        self,
+        stocks: List[ValueStock],
+        all_stocks: List[str] = None,
+        group_info: dict = None,
     ) -> str:
         """Format English stocks message with readable formatting.
 
         Args:
             stocks: List of ValueStock objects to format
             all_stocks: List of all stock names that were analyzed
+            group_info: Optional rotation group information for progress display
 
         Returns:
             str: Formatted English message
         """
-        msg = "🎯 **Today's Value Stocks**\n\n"
+        # Add rotation group info if provided (要件 7.5)
+        if group_info:
+            msg = f"🎯 **Today's Value Stocks** - {group_info['progress_text_en']}\n\n"
+        else:
+            msg = "🎯 **Today's Value Stocks**\n\n"
 
         for i, stock in enumerate(stocks, 1):
             msg += f"**{i}. {stock.name} ({stock.code})**\n"
@@ -175,9 +211,12 @@ class SlackNotifier:
             msg += f"Revenue: {stock.revenue_growth_years}yrs | "
             msg += f"Profit: {stock.profit_growth_years}yrs\n\n"
 
-        # Add analyzed stocks summary
+        # Add analyzed stocks summary with rotation info
         if all_stocks:
-            msg += f"\n📊 **Analyzed Stocks** ({len(all_stocks)} stocks)\n"
+            if group_info:
+                msg += f"\n📊 **Today's Analyzed Stocks** ({len(all_stocks)} stocks) - {group_info['weekday_en']}\n"
+            else:
+                msg += f"\n📊 **Analyzed Stocks** ({len(all_stocks)} stocks)\n"
             msg += "```\n"
             # Display stocks in columns for better readability
             for i in range(0, len(all_stocks), 3):
@@ -187,41 +226,61 @@ class SlackNotifier:
 
         return msg
 
-    def format_no_stocks_message_bilingual(self, all_stocks: List[str] = None) -> str:
+    def format_no_stocks_message_bilingual(
+        self, all_stocks: List[str] = None, group_info: dict = None
+    ) -> str:
         """Format no stocks found message in both Japanese and English.
 
         Args:
             all_stocks: List of all stock names that were analyzed
+            group_info: Optional rotation group information for progress display
 
         Returns:
             str: Formatted bilingual message with Japanese first, then English
         """
-        japanese_msg = "📊 **本日の結果**\n\n"
+        # Japanese message with rotation info
+        if group_info:
+            japanese_msg = f"📊 **本日の結果** - {group_info['progress_text_jp']}\n\n"
+        else:
+            japanese_msg = "📊 **本日の結果**\n\n"
+
         japanese_msg += "本日はバリュー銘柄が見つかりませんでした。\n"
         japanese_msg += "明日も引き続き監視いたします。"
 
-        english_msg = "📊 **Today's Results**\n\n"
+        # English message with rotation info
+        if group_info:
+            english_msg = (
+                f"📊 **Today's Results** - {group_info['progress_text_en']}\n\n"
+            )
+        else:
+            english_msg = "📊 **Today's Results**\n\n"
+
         english_msg += "No value stocks found today.\n"
         english_msg += "We'll continue monitoring tomorrow."
 
-        # Add analyzed stocks summary
+        # Add analyzed stocks summary with rotation info
         if all_stocks:
-            japanese_msg += f"\n\n📊 **分析対象銘柄** ({len(all_stocks)}銘柄)\n"
+            if group_info:
+                japanese_msg += f"\n\n📊 **本日の分析対象銘柄** ({len(all_stocks)}銘柄) - {group_info['weekday_jp']}\n"
+                english_msg += f"\n\n📊 **Today's Analyzed Stocks** ({len(all_stocks)} stocks) - {group_info['weekday_en']}\n"
+            else:
+                japanese_msg += f"\n\n📊 **分析対象銘柄** ({len(all_stocks)}銘柄)\n"
+                english_msg += (
+                    f"\n\n📊 **Analyzed Stocks** ({len(all_stocks)} stocks)\n"
+                )
+
             japanese_msg += "```\n"
+            english_msg += "```\n"
+
             # Display stocks in columns for better readability
             for i in range(0, len(all_stocks), 3):
                 row_stocks = all_stocks[i : i + 3]
                 japanese_msg += (
                     " | ".join(f"{stock:<20}" for stock in row_stocks) + "\n"
                 )
-            japanese_msg += "```"
-
-            english_msg += f"\n\n📊 **Analyzed Stocks** ({len(all_stocks)} stocks)\n"
-            english_msg += "```\n"
-            # Display stocks in columns for better readability
-            for i in range(0, len(all_stocks), 3):
-                row_stocks = all_stocks[i : i + 3]
                 english_msg += " | ".join(f"{stock:<20}" for stock in row_stocks) + "\n"
+
+            japanese_msg += "```"
             english_msg += "```"
 
         return japanese_msg + "\n\n" + "─" * 50 + "\n\n" + english_msg
@@ -283,18 +342,30 @@ class SlackNotifier:
             self.logger.warning(f"Failed to send progress notification: {str(e)}")
             return False
 
-    def send_analysis_start_notification(self, total_stocks: int, mode: str) -> bool:
+    def send_analysis_start_notification(
+        self, total_stocks: int, mode: str, group_info: dict = None
+    ) -> bool:
         """Send notification when analysis starts.
 
         Args:
             total_stocks: Total number of stocks to analyze
-            mode: Analysis mode ("curated" or "all")
+            mode: Analysis mode ("curated", "all", or "rotation")
+            group_info: Optional rotation group information for progress display
 
         Returns:
             bool: True if notification was sent successfully, False otherwise
         """
         try:
-            if mode == "all":
+            if mode == "rotation" and group_info:
+                # Rotation mode notification (要件 7.5)
+                msg = f"🔄 **ローテーションスクリーニング開始** - {group_info['progress_text_jp']}\n\n"
+                msg += f"本日の分析対象: {total_stocks:,} 銘柄 ({group_info['weekday_jp']})\n"
+                msg += f"予想実行時間: 5-10分\n\n"
+                msg += f"🔄 **Rotation Screening Started** - {group_info['progress_text_en']}\n\n"
+                msg += f"Today's target: {total_stocks:,} stocks ({group_info['weekday_en']})\n"
+                msg += f"Estimated time: 5-10 minutes\n\n"
+                msg += f"📅 **週次進捗 / Weekly Progress:** {group_info['group_number']}/{group_info['total_groups']} 完了予定"
+            elif mode == "all":
                 msg = f"🚀 **週次全銘柄スクリーニング開始**\n\n"
                 msg += f"分析対象: {total_stocks:,} 銘柄\n"
                 msg += f"予想実行時間: 2-4時間\n\n"
@@ -525,3 +596,56 @@ class SlackNotifier:
         # - Write to a separate alert log file
         # - Send to monitoring systems
         # - Create GitHub issues automatically
+
+    def send_rotation_summary_notification(
+        self, group_info: dict, week_progress: dict = None
+    ) -> bool:
+        """Send weekly rotation summary notification.
+
+        Args:
+            group_info: Current rotation group information
+            week_progress: Optional weekly progress summary
+
+        Returns:
+            bool: True if notification was sent successfully, False otherwise
+        """
+        try:
+            msg = f"📅 **週次ローテーション進捗サマリー / Weekly Rotation Progress Summary**\n\n"
+
+            # Current day info
+            msg += f"**本日完了 / Today Completed:** {group_info['progress_text_jp']}\n"
+            msg += f"**Today Completed:** {group_info['progress_text_en']}\n\n"
+
+            # Weekly progress if provided
+            if week_progress:
+                msg += f"**週次進捗 / Weekly Progress:**\n"
+                for day_idx, day_info in week_progress.items():
+                    status = "✅" if day_info.get("completed", False) else "⏳"
+                    msg += f"{status} {day_info['weekday_jp']} / {day_info['weekday_en']}: {day_info.get('stocks_analyzed', 0)} 銘柄\n"
+                msg += "\n"
+
+            # Next day preview
+            msg += f"**明日の予定 / Tomorrow's Schedule:**\n"
+            next_group = (group_info["group_index"] + 1) % group_info["total_groups"]
+            next_weekday_jp = ["火曜日", "水曜日", "木曜日", "金曜日", "月曜日"][
+                next_group
+            ]
+            next_weekday_en = ["Tuesday", "Wednesday", "Thursday", "Friday", "Monday"][
+                next_group
+            ]
+            msg += f"🔄 {next_weekday_jp}グループ ({next_group + 1}/{group_info['total_groups']})\n"
+            msg += f"🔄 {next_weekday_en} Group ({next_group + 1}/{group_info['total_groups']})"
+
+            response = self.client.chat_postMessage(
+                channel=self.config.channel,
+                text=msg,
+                username=self.config.username,
+                icon_emoji=":calendar:",
+            )
+
+            self.logger.info("Sent rotation summary notification")
+            return True
+
+        except Exception as e:
+            self.logger.warning(f"Failed to send rotation summary: {str(e)}")
+            return False

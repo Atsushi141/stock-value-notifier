@@ -1,0 +1,4 @@
+# file: /Users/sugai/dev/stock-value-notifier/src/cache_manager.py
+# hypothesis_version: 6.150.0
+
+[1024, '*.json', 'Date', 'Dividends', 'Symbol', 'cache', 'cache_dir', 'cache_files', 'cache_metadata.json', 'data', 'dividend_cache_size', 'financial_cache_size', 'financial_info.json', 'isoformat', 'last_updated', 'r', 'records', 'stock_data.json', 'timestamp', 'total_cache_size_mb', 'utf-8', 'w']

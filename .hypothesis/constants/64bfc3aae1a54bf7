@@ -1,0 +1,4 @@
+# file: /Users/sugai/dev/stock-value-notifier/src/models.py
+# hypothesis_version: 6.150.0
+
+[0.0, 1.5, 2.0, 15.0, 30.0, 2024, 2025, 'sector', 'バリュー株通知Bot']

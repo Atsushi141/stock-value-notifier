@@ -1,0 +1,4 @@
+# file: /Users/sugai/dev/stock-value-notifier/src/config_manager.py
+# hypothesis_version: 6.150.0
+
+[1.5, 2.0, 15.0, 30.0, '#', 'C', 'MAX_PBR', 'MAX_PER', 'MAX_PER_VOLATILITY', 'MIN_DIVIDEND_YIELD', 'MIN_GROWTH_YEARS', 'ROTATION_GROUPS', 'SCREENING_MODE', 'SLACK_BOT_TOKEN', 'SLACK_CHANNEL', 'SLACK_ICON_EMOJI', 'SLACK_USERNAME', 'Slack token is empty', 'all', 'curated', 'market_cap', 'rotation', 'sector', 'xoxb-', 'バリュー株通知Bot']

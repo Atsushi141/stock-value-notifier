@@ -403,6 +403,29 @@ class DataFetcher:
                         # Default to 1 year if period format is not recognized
                         start_date = end_date - timedelta(days=365)
 
+                    # Handle timezone-aware datetime comparison
+                    if (
+                        hasattr(dividends.index, "tz")
+                        and dividends.index.tz is not None
+                    ):
+                        # Convert start_date to timezone-aware datetime
+                        import pytz
+
+                        start_date = pytz.timezone("Asia/Tokyo").localize(start_date)
+                    elif hasattr(dividends.index, "tz_localize"):
+                        # If dividends index is timezone-naive, localize it
+                        try:
+                            dividends.index = dividends.index.tz_localize("Asia/Tokyo")
+                            import pytz
+
+                            start_date = pytz.timezone("Asia/Tokyo").localize(
+                                start_date
+                            )
+                        except:
+                            # If localization fails, convert both to naive datetime
+                            if hasattr(dividends.index, "tz_convert"):
+                                dividends.index = dividends.index.tz_convert(None)
+
                     dividends = dividends[dividends.index >= start_date]
 
                 # Convert to DataFrame

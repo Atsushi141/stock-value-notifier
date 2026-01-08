@@ -43,6 +43,15 @@ class SlackConfig:
     icon_emoji: str = ":chart_with_upwards_trend:"
 
 
+@dataclass
+class RotationConfig:
+    """Configuration for rotation functionality."""
+
+    enabled: bool = False
+    total_groups: int = 5
+    group_distribution_method: str = "sector"  # "sector" or "market_cap"
+
+
 class MarketCalendar:
     """
     Market calendar utility for determining Japanese stock market trading days.
