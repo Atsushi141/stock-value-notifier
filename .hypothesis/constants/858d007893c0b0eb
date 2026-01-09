@@ -1,0 +1,4 @@
+# file: /Users/sugai/dev/stock-value-notifier/src/validation_error_processor.py
+# hypothesis_version: 6.150.0
+
+[0.0, 0.5, 100, 'custom', 'data', 'dividend_data', 'financial_data', 'price_data']

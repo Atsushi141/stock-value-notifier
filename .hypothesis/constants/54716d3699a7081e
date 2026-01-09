@@ -1,0 +1,4 @@
+# file: /Users/sugai/dev/stock-value-notifier/src/timezone_handler.py
+# hypothesis_version: 6.150.0
+
+['Asia/Tokyo', 'tz_localize']

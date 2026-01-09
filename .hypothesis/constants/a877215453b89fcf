@@ -1,0 +1,4 @@
+# file: /Users/sugai/dev/stock-value-notifier/src/error_handler.py
+# hypothesis_version: 6.150.0
+
+[0.0, 0.2, 0.5, 0.8, 0.9, 1.0, 3600, 'API error', 'Invalid value error', 'Memory error', 'Type error', 'User interruption', 'api', 'api_limits', 'by_action', 'by_category', 'by_severity', 'consecutive_errors', 'continue', 'critical', 'data_availability', 'data_not_found', 'error_rate_recent', 'high', 'info', 'low', 'medium', 'network', 'programming', 'recent_errors_1h', 'retry', 'retry_attempts', 'skip_item', 'stop_all', 'stop_batch', 'system', 'total_errors', 'unknown', 'user']

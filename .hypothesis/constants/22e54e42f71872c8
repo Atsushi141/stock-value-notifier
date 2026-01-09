@@ -1,0 +1,4 @@
+# file: /Users/sugai/dev/stock-value-notifier/src/data_validator.py
+# hypothesis_version: 6.150.0
+
+[0.0, 0.01, 0.1, 0.3, 0.5, 1.0, 2.0, 100.0, 1000.0, 1000000.0, 100, 365, 'Close', 'Date', 'Dividends', 'High', 'Low', 'Open', 'PBR data is missing', 'PER data is missing', 'Price data is empty', 'Volume', 'average_dividend', 'completeness_ratio', 'currentPrice', 'date_range', 'dividend', 'dividendYield', 'dividend_frequency', 'dividend_paying', 'end', 'error', 'error_count', 'error_rate', 'financial', 'invalid', 'invalid_count', 'marketCap', 'non_null_fields', 'price', 'priceToBook', 'record_count', 'shortName', 'start', 'success_rate', 'symbol', 'total_dividends', 'total_fields', 'total_validations', 'trailingPE', 'valid', 'valid_count', 'warning', 'warning_count', 'warning_rate']

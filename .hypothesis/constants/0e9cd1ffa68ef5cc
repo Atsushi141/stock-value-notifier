@@ -1,0 +1,4 @@
+# file: /Users/sugai/dev/stock-value-notifier/src/symbol_validator.py
+# hypothesis_version: 6.150.0
+
+[0.5, 100, '.', '5d', 'DELISTED', 'available_keys', 'cache_hit_rate', 'cache_hits', 'cache_size', 'currency', 'currentPrice', 'delisted', 'delisted_cache_size', 'delisted_symbols', 'error', 'errors', 'exchange', 'has_current_price', 'industry', 'info_keys', 'invalid', 'invalid ticker', 'invalid_symbols', 'longBusinessSummary', 'longName', 'no data found', 'no price data found', 'not found', 'not_found', 'possibly delisted', 'quoteType', 'regularMarketPrice', 'sector', 'shortName', 'symbol', 'ticker not found', 'total_validations', 'valid', 'valid_symbols']

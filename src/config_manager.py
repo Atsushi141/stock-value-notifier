@@ -6,7 +6,7 @@ Handles loading and validation of configuration from GitHub Secrets and environm
 import os
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, Any
 from .models import RotationConfig
 
 
@@ -240,11 +240,12 @@ class ConfigManager:
         """
         Load and validate rotation configuration from environment variables.
         Uses default values for invalid or missing configuration.
+        Enhanced with TSE-specific options.
 
         Returns:
             RotationConfig: Validated rotation configuration
 
-        Note: Implements requirements 7.6, 7.7 - rotation mode configuration
+        Note: Implements requirements 7.6, 7.7 - rotation mode configuration with TSE support
         """
         config = RotationConfig()
 
@@ -274,12 +275,99 @@ class ConfigManager:
         distribution_method = os.getenv(
             "GROUP_DISTRIBUTION_METHOD", config.group_distribution_method
         ).lower()
-        if distribution_method in ["sector", "market_cap"]:
+        valid_methods = ["sector", "market_size", "mixed", "round_robin"]
+        if distribution_method in valid_methods:
             config.group_distribution_method = distribution_method
         else:
             self.logger.warning(
                 f"Invalid GROUP_DISTRIBUTION_METHOD: {distribution_method}. "
-                f"Using default: {config.group_distribution_method}"
+                f"Valid options: {valid_methods}. Using default: {config.group_distribution_method}"
+            )
+
+        # Load TSE-specific configuration options
+
+        # Use 17-sector vs 33-sector classification
+        use_17_sector = os.getenv("USE_17_SECTOR_CLASSIFICATION", "true").lower()
+        config.use_17_sector_classification = use_17_sector in ["true", "1", "yes"]
+
+        # Balance market categories
+        balance_markets = os.getenv("BALANCE_MARKET_CATEGORIES", "true").lower()
+        config.balance_market_categories = balance_markets in ["true", "1", "yes"]
+
+        # Use TSE metadata
+        use_tse_metadata = os.getenv("USE_TSE_METADATA", "true").lower()
+        config.use_tse_metadata = use_tse_metadata in ["true", "1", "yes"]
+
+        # Auto-optimize distribution method
+        auto_optimize = os.getenv("AUTO_OPTIMIZE_DISTRIBUTION", "false").lower()
+        config.auto_optimize_distribution = auto_optimize in ["true", "1", "yes"]
+
+        # Load optimization weights
+        try:
+            sector_weight = float(
+                os.getenv("SECTOR_BALANCE_WEIGHT", config.sector_balance_weight)
+            )
+            if 0 <= sector_weight <= 1:
+                config.sector_balance_weight = sector_weight
+            else:
+                self.logger.warning(
+                    f"Invalid SECTOR_BALANCE_WEIGHT: {sector_weight}. Using default: {config.sector_balance_weight}"
+                )
+        except (ValueError, TypeError):
+            self.logger.warning(
+                f"Invalid SECTOR_BALANCE_WEIGHT format. Using default: {config.sector_balance_weight}"
+            )
+
+        try:
+            size_weight = float(
+                os.getenv("SIZE_BALANCE_WEIGHT", config.size_balance_weight)
+            )
+            if 0 <= size_weight <= 1:
+                config.size_balance_weight = size_weight
+            else:
+                self.logger.warning(
+                    f"Invalid SIZE_BALANCE_WEIGHT: {size_weight}. Using default: {config.size_balance_weight}"
+                )
+        except (ValueError, TypeError):
+            self.logger.warning(
+                f"Invalid SIZE_BALANCE_WEIGHT format. Using default: {config.size_balance_weight}"
+            )
+
+        try:
+            group_weight = float(
+                os.getenv("GROUP_SIZE_WEIGHT", config.group_size_weight)
+            )
+            if 0 <= group_weight <= 1:
+                config.group_size_weight = group_weight
+            else:
+                self.logger.warning(
+                    f"Invalid GROUP_SIZE_WEIGHT: {group_weight}. Using default: {config.group_size_weight}"
+                )
+        except (ValueError, TypeError):
+            self.logger.warning(
+                f"Invalid GROUP_SIZE_WEIGHT format. Using default: {config.group_size_weight}"
+            )
+
+        # Validate that weights sum to approximately 1.0
+        total_weight = (
+            config.sector_balance_weight
+            + config.size_balance_weight
+            + config.group_size_weight
+        )
+        if abs(total_weight - 1.0) > 0.01:  # Allow small floating point differences
+            self.logger.warning(
+                f"Optimization weights sum to {total_weight:.3f}, not 1.0. "
+                f"Results may be skewed."
+            )
+
+        # Log TSE configuration summary
+        if config.enabled:
+            self.logger.info(
+                f"TSE Rotation Configuration: "
+                f"method={config.group_distribution_method}, "
+                f"17sector={config.use_17_sector_classification}, "
+                f"tse_metadata={config.use_tse_metadata}, "
+                f"auto_optimize={config.auto_optimize_distribution}"
             )
 
         return config
@@ -358,7 +446,7 @@ class ConfigManager:
 
     def _validate_rotation_config(self, rotation_config: RotationConfig) -> bool:
         """
-        Validate rotation configuration values.
+        Validate rotation configuration values including TSE-specific options.
 
         Args:
             rotation_config: Rotation configuration to validate
@@ -378,11 +466,44 @@ class ConfigManager:
             )
             return False
 
-        if rotation_config.group_distribution_method not in ["sector", "market_cap"]:
+        valid_methods = ["sector", "market_size", "mixed", "round_robin"]
+        if rotation_config.group_distribution_method not in valid_methods:
             self.logger.error(
-                f"Invalid group_distribution_method: {rotation_config.group_distribution_method}"
+                f"Invalid group_distribution_method: {rotation_config.group_distribution_method}. "
+                f"Valid options: {valid_methods}"
             )
             return False
+
+        # Validate optimization weights
+        if not (0 <= rotation_config.sector_balance_weight <= 1):
+            self.logger.error(
+                f"Invalid sector_balance_weight: {rotation_config.sector_balance_weight} (must be 0-1)"
+            )
+            return False
+
+        if not (0 <= rotation_config.size_balance_weight <= 1):
+            self.logger.error(
+                f"Invalid size_balance_weight: {rotation_config.size_balance_weight} (must be 0-1)"
+            )
+            return False
+
+        if not (0 <= rotation_config.group_size_weight <= 1):
+            self.logger.error(
+                f"Invalid group_size_weight: {rotation_config.group_size_weight} (must be 0-1)"
+            )
+            return False
+
+        # Check that weights sum to approximately 1.0
+        total_weight = (
+            rotation_config.sector_balance_weight
+            + rotation_config.size_balance_weight
+            + rotation_config.group_size_weight
+        )
+        if abs(total_weight - 1.0) > 0.1:  # Allow some tolerance
+            self.logger.warning(
+                f"Optimization weights sum to {total_weight:.3f}, not 1.0. "
+                f"This may affect optimization results."
+            )
 
         return True
 
@@ -405,3 +526,152 @@ class ConfigManager:
             return "curated"
 
         return mode
+
+    def get_tse_rotation_config(self) -> Dict[str, Any]:
+        """
+        Get TSE-specific rotation configuration details.
+
+        Returns:
+            Dict containing TSE rotation configuration information
+
+        Note: Implements requirement 7.6 - TSE configuration options
+        """
+        rotation_config = self.get_rotation_config()
+
+        return {
+            "enabled": rotation_config.enabled,
+            "total_groups": rotation_config.total_groups,
+            "distribution_method": rotation_config.group_distribution_method,
+            "use_17_sector": rotation_config.use_17_sector_classification,
+            "balance_markets": rotation_config.balance_market_categories,
+            "use_tse_metadata": rotation_config.use_tse_metadata,
+            "auto_optimize": rotation_config.auto_optimize_distribution,
+            "optimization_weights": {
+                "sector_balance": rotation_config.sector_balance_weight,
+                "size_balance": rotation_config.size_balance_weight,
+                "group_size": rotation_config.group_size_weight,
+            },
+            "sector_classification": (
+                "17業種" if rotation_config.use_17_sector_classification else "33業種"
+            ),
+        }
+
+    def get_available_distribution_methods(self) -> Dict[str, str]:
+        """
+        Get available distribution methods with descriptions.
+
+        Returns:
+            Dict mapping method names to descriptions
+
+        Note: Implements requirement 7.6 - distribution method selection
+        """
+        return {
+            "round_robin": "Simple round-robin distribution (backward compatible)",
+            "sector": "Distribute by sector classification (17業種 or 33業種)",
+            "market_size": "Distribute by market size category (TOPIX Small, etc.)",
+            "mixed": "Mixed distribution using sector + size + market criteria",
+        }
+
+    def get_configuration_help(self) -> Dict[str, Any]:
+        """
+        Get help information for TSE rotation configuration.
+
+        Returns:
+            Dict containing configuration help and examples
+
+        Note: Implements requirement 7.6 - configuration guidance
+        """
+        return {
+            "environment_variables": {
+                "SCREENING_MODE": {
+                    "description": "Screening mode selection",
+                    "options": ["curated", "all", "rotation"],
+                    "default": "curated",
+                    "example": "rotation",
+                },
+                "ROTATION_GROUPS": {
+                    "description": "Number of rotation groups (1-10)",
+                    "type": "integer",
+                    "default": 5,
+                    "example": "5",
+                },
+                "GROUP_DISTRIBUTION_METHOD": {
+                    "description": "Method for distributing stocks across groups",
+                    "options": ["round_robin", "sector", "market_size", "mixed"],
+                    "default": "sector",
+                    "example": "mixed",
+                },
+                "USE_17_SECTOR_CLASSIFICATION": {
+                    "description": "Use 17-sector vs 33-sector classification",
+                    "type": "boolean",
+                    "default": "true",
+                    "example": "true",
+                },
+                "BALANCE_MARKET_CATEGORIES": {
+                    "description": "Balance market categories across groups",
+                    "type": "boolean",
+                    "default": "true",
+                    "example": "true",
+                },
+                "USE_TSE_METADATA": {
+                    "description": "Use TSE metadata for intelligent distribution",
+                    "type": "boolean",
+                    "default": "true",
+                    "example": "true",
+                },
+                "AUTO_OPTIMIZE_DISTRIBUTION": {
+                    "description": "Automatically select optimal distribution method",
+                    "type": "boolean",
+                    "default": "false",
+                    "example": "false",
+                },
+                "SECTOR_BALANCE_WEIGHT": {
+                    "description": "Weight for sector balance in optimization (0.0-1.0)",
+                    "type": "float",
+                    "default": 0.3,
+                    "example": "0.3",
+                },
+                "SIZE_BALANCE_WEIGHT": {
+                    "description": "Weight for size balance in optimization (0.0-1.0)",
+                    "type": "float",
+                    "default": 0.3,
+                    "example": "0.3",
+                },
+                "GROUP_SIZE_WEIGHT": {
+                    "description": "Weight for group size balance in optimization (0.0-1.0)",
+                    "type": "float",
+                    "default": 0.4,
+                    "example": "0.4",
+                },
+            },
+            "examples": {
+                "basic_rotation": {
+                    "SCREENING_MODE": "rotation",
+                    "ROTATION_GROUPS": "5",
+                    "GROUP_DISTRIBUTION_METHOD": "sector",
+                },
+                "advanced_tse_rotation": {
+                    "SCREENING_MODE": "rotation",
+                    "ROTATION_GROUPS": "5",
+                    "GROUP_DISTRIBUTION_METHOD": "mixed",
+                    "USE_17_SECTOR_CLASSIFICATION": "true",
+                    "BALANCE_MARKET_CATEGORIES": "true",
+                    "USE_TSE_METADATA": "true",
+                },
+                "auto_optimized_rotation": {
+                    "SCREENING_MODE": "rotation",
+                    "ROTATION_GROUPS": "5",
+                    "AUTO_OPTIMIZE_DISTRIBUTION": "true",
+                    "SECTOR_BALANCE_WEIGHT": "0.4",
+                    "SIZE_BALANCE_WEIGHT": "0.3",
+                    "GROUP_SIZE_WEIGHT": "0.3",
+                },
+            },
+            "notes": [
+                "All weights must sum to 1.0 for proper optimization",
+                "TSE metadata requires data_j.xls file to be available",
+                "Auto-optimization will test all methods and select the best one",
+                "17-sector classification provides broader categories than 33-sector",
+                "Mixed distribution provides the most balanced sector representation",
+            ],
+        }

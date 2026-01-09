@@ -13,17 +13,19 @@ import logging
 import logging.handlers
 import os
 import sys
-from datetime import datetime, date
-from typing import Optional, List
+from datetime import datetime, date, timedelta
+from typing import Optional, List, Dict, Any
 import pandas as pd
 from pathlib import Path
 
 from .config_manager import ConfigManager, Config
-from .data_fetcher import DataFetcher
+from .data_fetcher import DataFetcher, create_datafetcher_from_environment
 from .screening_engine import ScreeningEngine
 from .slack_notifier import SlackNotifier
 from .rotation_manager import RotationManager
 from .models import ValueStock
+from .error_handling_config import ErrorHandlingConfig, ErrorHandlingConfigManager
+from .error_metrics import ErrorMetrics, AlertLevel
 
 
 class LogManager:
@@ -219,7 +221,7 @@ class WorkflowRunner:
     """
 
     def __init__(self):
-        """Initialize WorkflowRunner with logging and monitoring setup."""
+        """Initialize WorkflowRunner with enhanced logging, monitoring, and error handling setup."""
         # Initialize logging first
         self.log_manager = LogManager()
         self.logger = logging.getLogger(__name__)
@@ -227,31 +229,41 @@ class WorkflowRunner:
         self.config_manager = ConfigManager()
         self.config: Optional[Config] = None
 
+        # Enhanced error handling configuration
+        self.error_config_manager = ErrorHandlingConfigManager()
+        self.error_handling_config: Optional[ErrorHandlingConfig] = None
+
         # Components will be initialized after config is loaded
         self.data_fetcher: Optional[DataFetcher] = None
         self.screening_engine: Optional[ScreeningEngine] = None
         self.slack_notifier: Optional[SlackNotifier] = None
         self.rotation_manager: Optional[RotationManager] = None
 
+        # Enhanced error metrics integration
+        self.error_metrics: Optional[ErrorMetrics] = None
+
         # Performance tracking
         self.start_time: Optional[datetime] = None
 
     def main(self) -> None:
         """
-        Main entry point for the workflow execution.
+        Main entry point for the workflow execution with enhanced error handling integration.
 
         Orchestrates the complete daily screening workflow:
         1. Setup environment and configuration
         2. Check if market is open
         3. Execute daily screening if market is open
-        4. Handle any errors and send notifications
+        4. Monitor error metrics and send alerts if needed
+        5. Handle any errors and send notifications
         """
         self.start_time = datetime.now()
         workflow_type = "daily_screening"
 
         try:
             self.log_manager.log_workflow_start(workflow_type)
-            self.logger.info("Starting stock value notifier workflow")
+            self.logger.info(
+                "Starting stock value notifier workflow with enhanced error handling"
+            )
 
             # Perform initial health check
             self._perform_health_check()
@@ -266,13 +278,21 @@ class WorkflowRunner:
                 self._log_completion_metrics(skipped=True)
                 return
 
-            # Execute daily screening
+            # Execute daily screening with error monitoring
             self.execute_daily_screening()
+
+            # Check and send error alerts after screening
+            self.check_and_send_error_alerts()
+
+            # Log comprehensive error summary
+            self.log_comprehensive_error_summary()
 
             # Log successful completion
             duration = (datetime.now() - self.start_time).total_seconds()
             self.log_manager.log_workflow_end(workflow_type, True, duration)
-            self.logger.info("Workflow completed successfully")
+            self.logger.info(
+                "Workflow completed successfully with enhanced error handling"
+            )
             self._log_completion_metrics()
 
         except Exception as e:
@@ -285,11 +305,35 @@ class WorkflowRunner:
             self.log_manager.log_critical_error(e, "main_workflow")
             self.log_manager.log_workflow_end(workflow_type, False, duration)
 
+            # Log comprehensive error summary even on failure
+            try:
+                self.log_comprehensive_error_summary()
+            except Exception as summary_error:
+                self.logger.error(f"Failed to log error summary: {summary_error}")
+
             # Try to send error notification if Slack is configured
             if self.slack_notifier:
                 try:
-                    self.slack_notifier.send_error_notification(e)
-                    self.logger.info("Error notification sent to Slack")
+                    # Send both the main error and error metrics summary
+                    error_message = f"🚨 **Critical Workflow Error**\n\n{str(e)}"
+
+                    if self.error_metrics:
+                        error_summary = self.error_metrics.get_error_summary(
+                            timedelta(hours=1)
+                        )
+                        error_message += (
+                            f"\n\n**Recent Error Rate:** {error_summary['error_rate']*100:.1f}%\n"
+                            f"**Failed Operations:** {error_summary['failed_operations']}\n"
+                            f"**Total Operations:** {error_summary['total_operations']}"
+                        )
+
+                    self.slack_notifier.send_message(
+                        error_message,
+                        channel=None,
+                        username="Workflow Monitor",
+                        icon_emoji=":x:",
+                    )
+                    self.logger.info("Critical error notification sent to Slack")
                 except Exception as notification_error:
                     self.log_manager.log_critical_error(
                         notification_error, "error_notification"
@@ -392,20 +436,27 @@ class WorkflowRunner:
 
     def execute_daily_screening(self) -> None:
         """
-        Execute the daily stock screening workflow.
+        Execute the daily stock screening workflow with enhanced error monitoring.
 
         This method:
-        1. Fetches stock data from yfinance
+        1. Fetches stock data from yfinance with error tracking
         2. Runs screening analysis
-        3. Sends results via Slack notification
+        3. Monitors error rates and sends alerts if needed
+        4. Sends results via Slack notification
 
         Raises:
             Exception: If any step in the screening process fails
         """
-        self.logger.info("Starting daily screening execution")
+        self.logger.info(
+            "Starting daily screening execution with enhanced error monitoring"
+        )
         screening_start = datetime.now()
 
         try:
+            # Reset error metrics for this screening session
+            if self.error_metrics:
+                self.error_metrics.reset_metrics()
+
             # Get list of Japanese stocks to screen
             self.logger.info("Fetching Japanese stock list")
 
@@ -462,7 +513,7 @@ class WorkflowRunner:
             # Log data fetching start
             data_fetch_start = datetime.now()
 
-            # Collect stock data with progress notifications
+            # Collect stock data with progress notifications and error monitoring
             stock_data_list = []
             failed_symbols = []
             batch_processed = []
@@ -515,6 +566,14 @@ class WorkflowRunner:
                     stock_data_list.append(stock_data)
                     batch_processed.append(financial_info.get("shortName", symbol))
 
+                    # Record successful operation in error metrics
+                    if self.error_metrics:
+                        self.error_metrics.record_success(
+                            symbol=symbol,
+                            operation="stock_data_fetch",
+                            additional_info={"screening_mode": screening_mode},
+                        )
+
                     # Send progress notification
                     if (i + 1) % progress_interval == 0 or i + 1 == len(stock_symbols):
                         current_stock = financial_info.get("shortName", symbol)
@@ -529,12 +588,33 @@ class WorkflowRunner:
                         # Clear batch for next progress update
                         batch_processed = []
 
+                        # Check error rate and send alert if needed during processing
+                        if (
+                            self.error_metrics
+                            and (i + 1) % (progress_interval * 2) == 0
+                        ):
+                            if self.error_metrics.should_alert():
+                                self.check_and_send_error_alerts()
+
                 except Exception as e:
                     self.logger.warning(f"Failed to fetch data for {symbol}: {str(e)}")
                     failed_symbols.append(symbol)
+
+                    # Record error in error metrics
+                    if self.error_metrics:
+                        from .error_metrics import ErrorType
+
+                        error_type = ErrorType.from_exception(e)
+                        self.error_metrics.record_error(
+                            error_type=error_type,
+                            symbol=symbol,
+                            operation="stock_data_fetch",
+                            details=str(e),
+                            additional_info={"screening_mode": screening_mode},
+                        )
                     continue
 
-            # Log data fetching metrics
+            # Log data fetching metrics with error information
             data_fetch_duration = (datetime.now() - data_fetch_start).total_seconds()
             fetch_metrics = {
                 "total_symbols": len(stock_symbols),
@@ -543,6 +623,19 @@ class WorkflowRunner:
                 "fetch_duration_seconds": data_fetch_duration,
                 "success_rate": len(stock_data_list) / len(stock_symbols) * 100,
             }
+
+            # Add error metrics if available
+            if self.error_metrics:
+                error_summary = self.error_metrics.get_error_summary(
+                    datetime.now() - data_fetch_start
+                )
+                fetch_metrics.update(
+                    {
+                        "error_rate": error_summary["error_rate"],
+                        "error_by_type": error_summary["error_by_type"],
+                    }
+                )
+
             self.log_manager.log_performance_metrics(fetch_metrics)
 
             if failed_symbols:
@@ -645,7 +738,7 @@ class WorkflowRunner:
                 datetime.now() - notification_start
             ).total_seconds()
 
-            # Log overall screening completion
+            # Log overall screening completion with error metrics
             total_screening_duration = (
                 datetime.now() - screening_start
             ).total_seconds()
@@ -655,21 +748,46 @@ class WorkflowRunner:
                 "stocks_processed": len(stock_data_list),
                 "value_stocks_found": len(value_stocks),
             }
+
+            # Add final error metrics
+            if self.error_metrics:
+                final_error_summary = self.error_metrics.get_error_summary()
+                completion_metrics.update(
+                    {
+                        "final_error_rate": final_error_summary["error_rate"],
+                        "total_errors": final_error_summary["failed_operations"],
+                        "should_alert": final_error_summary["should_alert"],
+                    }
+                )
+
             self.log_manager.log_performance_metrics(completion_metrics)
 
         except Exception as e:
             self.log_manager.log_critical_error(e, "daily_screening")
+
+            # Record critical error in error metrics
+            if self.error_metrics:
+                from .error_metrics import ErrorType, AlertLevel
+
+                self.error_metrics.record_error(
+                    error_type=ErrorType.UNKNOWN,
+                    symbol="SYSTEM",
+                    operation="daily_screening",
+                    details=str(e),
+                    severity=AlertLevel.CRITICAL,
+                )
             raise
 
     def setup_environment(self) -> None:
         """
-        Setup environment and initialize all system components.
+        Setup environment and initialize all system components with enhanced error handling.
 
         This method:
         1. Configures logging
         2. Loads configuration from environment variables
-        3. Validates configuration
-        4. Initializes all system components
+        3. Loads enhanced error handling configuration
+        4. Validates configuration
+        5. Initializes all system components with integrated error handling
 
         Raises:
             ValueError: If configuration is invalid or missing
@@ -689,11 +807,54 @@ class WorkflowRunner:
 
             self.log_manager.log_system_health("configuration", "VALID")
 
-            # Initialize system components
-            self.logger.info("Initializing system components")
+            # Load enhanced error handling configuration
+            self.logger.info("Loading enhanced error handling configuration")
+            try:
+                self.error_handling_config = (
+                    self.error_config_manager.load_config_from_env()
+                )
 
-            self.data_fetcher = DataFetcher()
+                if self.error_config_manager.validate_config(
+                    self.error_handling_config
+                ):
+                    self.log_manager.log_system_health("error_handling_config", "VALID")
+                    self.logger.info(
+                        f"Error handling mode: {self.error_handling_config.mode.value}, "
+                        f"Continue on error: {self.error_handling_config.continue_on_individual_error}"
+                    )
+                else:
+                    self.logger.warning(
+                        "Error handling configuration validation failed, using defaults"
+                    )
+                    self.error_handling_config = None
+
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to load error handling configuration: {e}, using defaults"
+                )
+                self.error_handling_config = None
+
+            # Initialize system components with enhanced error handling
+            self.logger.info(
+                "Initializing system components with enhanced error handling"
+            )
+
+            # Initialize DataFetcher with enhanced error handling
+            if self.error_handling_config:
+                self.data_fetcher = DataFetcher(
+                    error_handling_config=self.error_handling_config,
+                    enable_enhanced_features=True,
+                )
+                self.logger.info("DataFetcher initialized with enhanced error handling")
+            else:
+                self.data_fetcher = DataFetcher()
+                self.logger.info("DataFetcher initialized with default configuration")
+
             self.log_manager.log_system_health("data_fetcher", "INITIALIZED")
+
+            # Get error metrics from DataFetcher for integration
+            self.error_metrics = self.data_fetcher.get_error_metrics()
+            self.log_manager.log_system_health("error_metrics", "INTEGRATED")
 
             self.screening_engine = ScreeningEngine(self.config.screening_config)
             self.log_manager.log_system_health("screening_engine", "INITIALIZED")
@@ -704,7 +865,9 @@ class WorkflowRunner:
             self.rotation_manager = RotationManager()
             self.log_manager.log_system_health("rotation_manager", "INITIALIZED")
 
-            self.logger.info("Environment setup completed successfully")
+            self.logger.info(
+                "Environment setup completed successfully with enhanced error handling"
+            )
             self.log_manager.log_system_health("environment", "READY")
 
         except Exception as e:
@@ -835,3 +998,189 @@ class WorkflowRunner:
             dividends.append(dividend_entry)
 
         return sorted(dividends, key=lambda x: x["year"], reverse=True)
+
+    def get_error_handling_status(self) -> Dict[str, Any]:
+        """
+        Get comprehensive error handling status from all components.
+
+        Returns:
+            Dictionary with error handling status from all integrated components
+        """
+        status = {
+            "workflow_runner": {
+                "error_handling_config_loaded": self.error_handling_config is not None,
+                "error_metrics_integrated": self.error_metrics is not None,
+            }
+        }
+
+        if self.data_fetcher:
+            status["data_fetcher"] = self.data_fetcher.get_error_handling_status()
+
+        if self.error_metrics:
+            status["error_metrics"] = {
+                "summary": self.error_metrics.get_error_summary(timedelta(hours=1)),
+                "should_alert": self.error_metrics.should_alert(),
+                "recent_errors": len(self.error_metrics.get_recent_errors(10)),
+            }
+
+        return status
+
+    def check_and_send_error_alerts(self) -> bool:
+        """
+        Check error metrics and send alerts if thresholds are exceeded.
+
+        Returns:
+            True if alerts were sent, False otherwise
+        """
+        if not self.error_metrics or not self.slack_notifier:
+            return False
+
+        if self.error_metrics.should_alert():
+            try:
+                error_summary = self.error_metrics.get_error_summary(timedelta(hours=1))
+
+                alert_message = (
+                    f"🚨 **Error Alert - Stock Value Notifier**\n\n"
+                    f"**Error Rate:** {error_summary['error_rate']*100:.1f}% "
+                    f"(Threshold: {self.error_metrics.error_threshold*100:.1f}%)\n"
+                    f"**Total Operations:** {error_summary['total_operations']}\n"
+                    f"**Failed Operations:** {error_summary['failed_operations']}\n"
+                    f"**Time Window:** {error_summary['time_window_hours']:.1f} hours\n\n"
+                )
+
+                if error_summary["error_by_type"]:
+                    alert_message += "**Error Breakdown:**\n"
+                    for error_type, count in error_summary["error_by_type"].items():
+                        alert_message += f"• {error_type}: {count}\n"
+
+                if error_summary["top_problematic_symbols"]:
+                    alert_message += "\n**Most Problematic Symbols:**\n"
+                    for symbol, count in list(
+                        error_summary["top_problematic_symbols"].items()
+                    )[:5]:
+                        alert_message += f"• {symbol}: {count} errors\n"
+
+                # Send alert via Slack
+                success = self.slack_notifier.send_message(
+                    alert_message,
+                    channel=None,  # Use default channel
+                    username="Error Monitor",
+                    icon_emoji=":warning:",
+                )
+
+                if success:
+                    self.logger.warning("Error alert sent successfully")
+                    self.log_manager.log_system_health(
+                        "error_alerting",
+                        "ALERT_SENT",
+                        {"error_rate": error_summary["error_rate"]},
+                    )
+                else:
+                    self.logger.error("Failed to send error alert")
+                    self.log_manager.log_system_health("error_alerting", "ALERT_FAILED")
+
+                return success
+
+            except Exception as e:
+                self.logger.error(f"Error sending alert: {e}")
+                self.log_manager.log_critical_error(e, "error_alerting")
+                return False
+
+        return False
+
+    def log_comprehensive_error_summary(self) -> None:
+        """
+        Log a comprehensive error summary for monitoring and debugging.
+        """
+        if not self.error_metrics:
+            return
+
+        try:
+            # Get error summary for different time windows
+            summary_1h = self.error_metrics.get_error_summary(timedelta(hours=1))
+            summary_24h = self.error_metrics.get_error_summary(timedelta(hours=24))
+
+            self.logger.info("=== COMPREHENSIVE ERROR SUMMARY ===")
+            self.logger.info(
+                f"1-Hour Window: {summary_1h['error_rate']*100:.1f}% error rate, "
+                f"{summary_1h['total_operations']} operations"
+            )
+            self.logger.info(
+                f"24-Hour Window: {summary_24h['error_rate']*100:.1f}% error rate, "
+                f"{summary_24h['total_operations']} operations"
+            )
+
+            if summary_1h["error_by_type"]:
+                self.logger.info("Recent Error Types:")
+                for error_type, count in summary_1h["error_by_type"].items():
+                    self.logger.info(f"  {error_type}: {count}")
+
+            if summary_1h["top_problematic_symbols"]:
+                self.logger.info("Problematic Symbols (1h):")
+                for symbol, count in list(
+                    summary_1h["top_problematic_symbols"].items()
+                )[:5]:
+                    self.logger.info(f"  {symbol}: {count} errors")
+
+            # Log to health system
+            self.log_manager.log_system_health(
+                "error_summary",
+                "LOGGED",
+                {
+                    "1h_error_rate": summary_1h["error_rate"],
+                    "24h_error_rate": summary_24h["error_rate"],
+                    "1h_operations": summary_1h["total_operations"],
+                    "24h_operations": summary_24h["total_operations"],
+                },
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error logging comprehensive summary: {e}")
+
+    def reset_error_metrics(self) -> None:
+        """
+        Reset error metrics for fresh monitoring period.
+        """
+        if self.error_metrics:
+            self.error_metrics.reset_metrics()
+            self.logger.info("Error metrics reset for fresh monitoring period")
+
+        if self.data_fetcher:
+            self.data_fetcher.reset_retry_statistics()
+            self.data_fetcher.reset_error_handling_state()
+            self.logger.info("DataFetcher error handling state reset")
+
+
+# Convenience factory functions for creating WorkflowRunner instances
+
+
+def create_workflow_runner_with_enhanced_error_handling() -> WorkflowRunner:
+    """
+    Create WorkflowRunner with enhanced error handling enabled.
+
+    Returns:
+        WorkflowRunner configured for enhanced error handling
+    """
+    runner = WorkflowRunner()
+    # Enhanced error handling will be configured during setup_environment()
+    return runner
+
+
+def create_workflow_runner_for_testing(
+    error_handling_config: Optional[ErrorHandlingConfig] = None,
+) -> WorkflowRunner:
+    """
+    Create WorkflowRunner for testing with optional error handling configuration.
+
+    Args:
+        error_handling_config: Optional error handling configuration for testing
+
+    Returns:
+        WorkflowRunner configured for testing
+    """
+    runner = WorkflowRunner()
+
+    if error_handling_config:
+        runner.error_handling_config = error_handling_config
+
+    return runner

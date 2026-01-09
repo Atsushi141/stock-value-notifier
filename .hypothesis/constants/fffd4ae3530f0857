@@ -1,0 +1,4 @@
+# file: /Users/sugai/dev/stock-value-notifier/src/error_metrics.py
+# hypothesis_version: 6.150.0
+
+[0.0, 0.1, 3600, 'additional_info', 'alert_threshold', 'alert_window_minutes', 'api_rate_limit', 'authentication', 'bucket_end', 'bucket_start', 'configuration', 'count', 'counters', 'critical', 'data_not_found', 'data_validation', 'delisted_stock', 'details', 'duration', 'error', 'error_by_severity', 'error_by_type', 'error_counts', 'error_rate', 'error_records', 'error_threshold', 'error_type', 'export_time', 'failed_operations', 'info', 'last_error_time', 'max_history_hours', 'network_error', 'operation', 'operation_counts', 'operation_records', 'records', 'session_info', 'session_start', 'severity', 'should_alert', 'success_counts', 'success_rate', 'summary', 'symbol', 'time_window_hours', 'timestamp', 'timezone_error', 'total_operations', 'unknown', 'warning']

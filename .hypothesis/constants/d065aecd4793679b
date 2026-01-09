@@ -1,0 +1,4 @@
+# file: /Users/sugai/dev/stock-value-notifier/src/symbol_filter.py
+# hypothesis_version: 6.150.0
+
+[0.0, 0.3, 100, 3600, '...', 'ALL_SYMBOLS', 'SYMBOL_LIST', 'alert_stats', 'alert_type', 'breakdown_stats', 'cache_duration_hours', 'configuration', 'delisted_count', 'empty_list_alert', 'empty_list_alerts', 'empty_list_check', 'empty_symbol_list', 'error_count', 'filter_rate', 'filtered_count', 'filtering_mode', 'high_filter_rate', 'invalid_count', 'original_count', 'overall_filter_rate', 'overall_stats', 'overall_success_rate', 'permissive', 'pre_filtering', 'recent_filter_rate', 'recent_operations', 'recent_stats', 'recent_success_rate', 'strict', 'symbol_filtering', 'threshold', 'timestamp', 'tolerant', 'total_operations', 'total_valid_symbols', 'valid_count']

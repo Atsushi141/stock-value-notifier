@@ -7,6 +7,10 @@ python-dateutil>=2.8.0
 yfinance>=0.2.0
 pytz>=2022.1
 
+# Excel file processing dependencies
+openpyxl>=3.0.0  # For .xlsx files
+xlrd>=2.0.0      # For .xls files (TSE data_j.xls)
+
 # Testing dependencies
 pytest>=7.0.0
 hypothesis>=6.68.0

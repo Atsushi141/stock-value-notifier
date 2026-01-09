@@ -1,0 +1,4 @@
+# file: /Users/sugai/dev/stock-value-notifier/src/retry_manager.py
+# hypothesis_version: 6.150.0
+
+[0.0, 0.1, 0.5, 1.0, 2.0, 10.0, 30.0, 60.0, 120.0, 300.0, -1000, 1000, 'average_attempts', 'average_elapsed_time', 'critical', 'exponential_backoff', 'failed', 'failed_operations', 'fixed_delay', 'immediate', 'linear_backoff', 'network', 'operations', 'rate_limited', 'retry_rate', 'success_rate', 'successful', 'total_attempts', 'total_elapsed_time', 'total_executions', 'total_operations', 'transient']

@@ -1,7 +1,7 @@
 """Data models and utilities for the stock value notifier system."""
 
-from dataclasses import dataclass
-from typing import Optional, List, Set
+from dataclasses import dataclass, field
+from typing import Optional, List, Set, Dict, Any
 from datetime import date, datetime
 
 
@@ -20,6 +20,28 @@ class ValueStock:
     profit_growth_years: int  # 継続増益年数
     per_stability: float  # PER変動係数
     score: float = 0.0  # 総合スコア
+    sector_17: str = ""  # 17業種区分
+    sector_33: str = ""  # 33業種区分
+    market_category: str = ""  # 市場・商品区分
+    size_category: str = ""  # 規模区分
+
+
+@dataclass
+class TSEStockInfo:
+    """Data class representing TSE stock information from official data file."""
+
+    code: str  # 銘柄コード
+    name: str  # 銘柄名
+    market_category: str  # 市場・商品区分
+    sector_33_code: str  # 33業種コード
+    sector_33_name: str  # 33業種区分
+    sector_17_code: str  # 17業種コード
+    sector_17_name: str  # 17業種区分
+    size_code: str  # 規模コード
+    size_category: str  # 規模区分
+    date: str  # データ日付
+    is_tradable: bool = True  # 取引可能フラグ
+    is_investment_product: bool = False  # 投資商品フラグ（ETF等）
 
 
 @dataclass
@@ -31,6 +53,15 @@ class ScreeningConfig:
     min_dividend_yield: float = 2.0
     min_growth_years: int = 3
     max_per_volatility: float = 30.0
+    use_tse_official_list: bool = True
+    exclude_investment_products: bool = True
+    target_markets: List[str] = field(
+        default_factory=lambda: [
+            "プライム（内国株式）",
+            "スタンダード（内国株式）",
+            "グロース（内国株式）",
+        ]
+    )
 
 
 @dataclass
@@ -45,11 +76,44 @@ class SlackConfig:
 
 @dataclass
 class RotationConfig:
-    """Configuration for rotation functionality."""
+    """Configuration for rotation functionality with TSE support."""
 
     enabled: bool = False
     total_groups: int = 5
-    group_distribution_method: str = "sector"  # "sector" or "market_cap"
+    group_distribution_method: str = (
+        "sector"  # "sector", "market_size", "mixed", "round_robin"
+    )
+    use_17_sector_classification: bool = True  # True: 17業種, False: 33業種
+    balance_market_categories: bool = True  # 市場区分の均等配分
+    use_tse_metadata: bool = True  # TSEメタデータを使用するかどうか
+    auto_optimize_distribution: bool = False  # 自動的に最適な分散方法を選択
+    sector_balance_weight: float = 0.3  # セクターバランスの重み（最適化時）
+    size_balance_weight: float = 0.3  # サイズバランスの重み（最適化時）
+    group_size_weight: float = 0.4  # グループサイズバランスの重み（最適化時）
+
+
+@dataclass
+class TSEDataConfig:
+    """Configuration for TSE data management."""
+
+    data_file_path: str = "stock_list/data_j.xls"
+    cache_duration_hours: int = 24
+    fallback_to_range_validation: bool = True
+    excluded_market_categories: List[str] = field(
+        default_factory=lambda: [
+            "ETF・ETN",
+            "REIT・ベンチャーファンド・カントリーファンド・インフラファンド",
+            "出資証券",
+        ]
+    )
+    target_market_categories: List[str] = field(
+        default_factory=lambda: [
+            "プライム（内国株式）",
+            "スタンダード（内国株式）",
+            "グロース（内国株式）",
+            "PRO Market",
+        ]
+    )
 
 
 class MarketCalendar:

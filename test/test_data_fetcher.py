@@ -10,8 +10,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 import logging
 
-from src.data_fetcher import (
-    DataFetcher,
+from src.data_fetcher import DataFetcher
+from src.exceptions import (
     APIError,
     AuthenticationError,
     RateLimitError,
