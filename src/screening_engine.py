@@ -119,6 +119,12 @@ class ScreeningEngine:
             current_dividend = sorted_dividends[i].get("dividend", 0)
             previous_dividend = sorted_dividends[i - 1].get("dividend", 0)
 
+            # Handle None values
+            if current_dividend is None:
+                current_dividend = 0
+            if previous_dividend is None:
+                previous_dividend = 0
+
             if current_dividend > previous_dividend and previous_dividend > 0:
                 growth_years += 1
             else:
@@ -149,6 +155,12 @@ class ScreeningEngine:
         for i in range(1, len(sorted_statements)):
             current_revenue = sorted_statements[i].get("revenue", 0)
             previous_revenue = sorted_statements[i - 1].get("revenue", 0)
+
+            # Handle None values
+            if current_revenue is None:
+                current_revenue = 0
+            if previous_revenue is None:
+                previous_revenue = 0
 
             if current_revenue > previous_revenue and previous_revenue > 0:
                 growth_years += 1
@@ -181,6 +193,12 @@ class ScreeningEngine:
             current_profit = sorted_statements[i].get("net_income", 0)
             previous_profit = sorted_statements[i - 1].get("net_income", 0)
 
+            # Handle None values
+            if current_profit is None:
+                current_profit = 0
+            if previous_profit is None:
+                previous_profit = 0
+
             if current_profit > previous_profit and previous_profit > 0:
                 growth_years += 1
             else:
@@ -208,6 +226,9 @@ class ScreeningEngine:
         per_values = []
         for statement in statements:
             per = statement.get("per", 0)
+            # Handle None values
+            if per is None:
+                per = 0
             if per > 0:  # Only include positive PER values
                 per_values.append(per)
 
@@ -226,7 +247,7 @@ class ScreeningEngine:
         return cv
 
     def _calculate_per_stability(self, financial_data: dict) -> float:
-        """Internal method to calculate PER stability."""
+        """Calculate PER stability (coefficient of variation)."""
         return self.calculate_per_stability(financial_data)
 
     def check_dividend_growth(self, dividend_data: dict) -> bool:
