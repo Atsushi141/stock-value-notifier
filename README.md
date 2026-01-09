@@ -478,7 +478,22 @@ Tokio Marine Holdings    | MS&AD Insurance          | SOMPO Holdings
 3. 値に余分なスペースや改行が含まれていないか確認
 ```
 
-#### 5. Python バージョン互換性エラー
+#### 5. None値比較エラー
+
+**症状**: "TypeError: '>' not supported between instances of 'NoneType' and 'NoneType'" エラー
+
+**原因**: 財務データにNone値が含まれている場合の比較処理エラー
+
+**解決方法**: 
+- v1.2.1で修正済み
+- 古いバージョンを使用している場合は最新版に更新してください
+
+```bash
+# 最新版の取得
+git pull origin main
+```
+
+#### 6. Python バージョン互換性エラー
 
 **症状**: "TypeError: unsupported operand type(s) for |" エラー
 
@@ -597,6 +612,16 @@ stock-value-notifier/
 3. **ログ確認**: GitHub ActionsのログやArtifactを確認
 
 ## 🔄 更新履歴
+
+### v1.2.1 (2025-01-10) - エラーハンドリング改善
+- **None値処理の修正**:
+  - 財務データにNone値が含まれる場合のTypeError修正
+  - `_calculate_revenue_growth_years()`, `_calculate_profit_growth_years()`, `_calculate_dividend_growth_years()`, `calculate_per_stability()`でのNone値チェック追加
+  - None値を0に変換してから比較処理を実行
+  - `TypeError: '>' not supported between instances of 'NoneType' and 'NoneType'`エラーを解決
+- **安定性向上**:
+  - 不完全な財務データでもスクリーニング処理が継続可能
+  - データ品質に関わらず安定したシステム動作を実現
 
 ### v1.2.0 (2024-01-XX) - 銘柄ローテーション機能
 - **銘柄ローテーション機能**:
