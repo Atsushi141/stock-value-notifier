@@ -19,7 +19,7 @@ import pandas as pd
 from pathlib import Path
 
 from .config_manager import ConfigManager, Config
-from .data_fetcher import DataFetcher, create_datafetcher_from_environment
+from .data_fetcher import DataFetcher
 from .screening_engine import ScreeningEngine
 from .slack_notifier import SlackNotifier
 from .rotation_manager import RotationManager
