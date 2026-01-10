@@ -17,10 +17,10 @@ import sys
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from csv_exporter import CSVExporter
-from slack_notifier import SlackNotifier
-from models import ValueStock, SlackConfig
-from workflow_runner import WorkflowRunner
+from src.csv_exporter import CSVExporter
+from src.slack_notifier import SlackNotifier
+from src.models import ValueStock, SlackConfig
+from src.workflow_runner import WorkflowRunner
 
 
 class TestCSVGeneration:
@@ -154,10 +154,18 @@ class TestCSVGeneration:
 
     def test_csv_generation_error_handling(self, sample_value_stocks):
         """Test CSV generation error handling."""
-        # Test with invalid directory
-        invalid_exporter = CSVExporter("/invalid/directory/path")
+        # Test with a directory path that will cause permission issues
+        # Use a path that exists but we can't write to (like root directory on most systems)
+        import platform
 
-        with pytest.raises(Exception):
+        if platform.system() == "Windows":
+            invalid_path = "C:\\Windows\\System32\\invalid_csv_dir"
+        else:
+            invalid_path = "/root/invalid_csv_dir"
+
+        # This should fail due to permission issues
+        with pytest.raises((PermissionError, OSError, FileNotFoundError)):
+            invalid_exporter = CSVExporter(invalid_path)
             invalid_exporter.export_all_csv_files(sample_value_stocks, "2026-01-10")
 
     def test_csv_filename_format(self, sample_value_stocks):
@@ -255,11 +263,16 @@ class TestSlackIntegration:
         mock_exists.return_value = True
 
         # Mock mixed upload responses (some succeed, some fail)
+        # Note: The retry logic will retry failed uploads, so we need to account for that
         mock_upload.side_effect = [
             {"ok": True, "file": {"id": "F123456"}},  # main_jp success
-            {"ok": False, "error": "file_too_large"},  # main_en failure
+            {"ok": False, "error": "file_too_large"},  # main_en failure (attempt 1)
+            {"ok": False, "error": "file_too_large"},  # main_en failure (attempt 2)
+            {"ok": False, "error": "file_too_large"},  # main_en failure (attempt 3)
             {"ok": True, "file": {"id": "F123457"}},  # history_jp success
-            {"ok": False, "error": "rate_limited"},  # history_en failure
+            {"ok": False, "error": "rate_limited"},  # history_en failure (attempt 1)
+            {"ok": False, "error": "rate_limited"},  # history_en failure (attempt 2)
+            {"ok": False, "error": "rate_limited"},  # history_en failure (attempt 3)
         ]
         mock_chat.return_value = {"ok": True}
 
@@ -269,7 +282,9 @@ class TestSlackIntegration:
         )
 
         assert result is False  # Should return False due to failures
-        assert mock_upload.call_count == 4  # All files attempted
+        assert (
+            mock_upload.call_count == 8
+        )  # 2 successful + 6 failed attempts (3 retries each for 2 failed files)
         assert mock_chat.call_count == 1  # Summary message still sent
 
     @patch("slack_sdk.WebClient.files_upload_v2")
