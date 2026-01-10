@@ -697,7 +697,7 @@ class DataFetcher:
                 # Filter by period with improved timezone handling
                 if period:
                     # Use timezone-aware datetime for comparison
-                    end_date = pd.Timestamp.now(tz='Asia/Tokyo')
+                    end_date = pd.Timestamp.now(tz="Asia/Tokyo")
                     if period.endswith("y"):
                         years = int(period[:-1])
                         start_date = end_date - pd.Timedelta(days=years * 365)
@@ -711,16 +711,19 @@ class DataFetcher:
                     # Handle timezone compatibility for filtering
                     try:
                         # If dividends index has timezone info, align with it
-                        if hasattr(dividends.index, 'tz') and dividends.index.tz is not None:
+                        if (
+                            hasattr(dividends.index, "tz")
+                            and dividends.index.tz is not None
+                        ):
                             # Convert our start_date to match dividends timezone
                             start_date = start_date.tz_convert(dividends.index.tz)
                         else:
                             # If dividends index is timezone-naive, make our dates naive too
                             start_date = start_date.tz_localize(None)
-                        
+
                         # Filter dividends by date
                         dividends = dividends[dividends.index >= start_date]
-                        
+
                     except Exception as tz_error:
                         # Log detailed timezone error using enhanced logger
                         self.enhanced_logger.log_timezone_error(
@@ -749,101 +752,6 @@ class DataFetcher:
                             f"Timezone filtering failed for {formatted_symbol}: {tz_error}. Using all available dividend data."
                         )
                         # Fallback: use all available dividend data without filtering
-                            },
-                            fallback_action="manual_timezone_handling",
-                            additional_context={
-                                "dividends_length": len(dividends),
-                                "start_date": (
-                                    start_date.isoformat()
-                                    if hasattr(start_date, "isoformat")
-                                    else str(start_date)
-                                ),
-                            },
-                        )
-
-                        # Also log to standard logger for backward compatibility
-                        self.logger.warning(
-                            f"Timezone filtering failed for {formatted_symbol}: {tz_error}"
-                        )
-                        # Fallback: try manual timezone handling
-                        try:
-                            # Handle timezone-aware datetime comparison manually
-                            if (
-                                hasattr(dividends.index, "tz")
-                                and dividends.index.tz is not None
-                            ):
-                                # Convert start_date to timezone-aware datetime
-                                start_date = self.timezone_handler.localize_datetime(
-                                    start_date
-                                )
-                                # Convert to same timezone as dividends index
-                                start_date = start_date.astimezone(dividends.index.tz)
-                            elif hasattr(dividends.index, "tz_localize"):
-                                # If dividends index is timezone-naive, try to localize it
-                                try:
-                                    dividends.index = dividends.index.tz_localize(
-                                        "Asia/Tokyo"
-                                    )
-                                    start_date = (
-                                        self.timezone_handler.localize_datetime(
-                                            start_date
-                                        )
-                                    )
-                                except Exception:
-                                    # If localization fails, strip timezone info from start_date
-                                    start_date = (
-                                        self.timezone_handler.strip_timezone_if_needed(
-                                            start_date
-                                        )
-                                    )
-                                    # Also strip from dividends index if possible
-                                    if hasattr(dividends.index, "tz_localize"):
-                                        try:
-                                            dividends.index = (
-                                                dividends.index.tz_localize(None)
-                                            )
-                                        except Exception:
-                                            pass
-
-                            # Perform the filtering
-                            dividends = dividends[dividends.index >= start_date]
-
-                        except Exception as fallback_error:
-                            # Log detailed fallback timezone error using enhanced logger
-                            self.enhanced_logger.log_timezone_error(
-                                symbol=formatted_symbol,
-                                operation="dividend_history_fallback",
-                                error=fallback_error,
-                                timezone_info={
-                                    "dividends_index_tz": str(
-                                        getattr(dividends.index, "tz", "None")
-                                    ),
-                                    "start_date_tz": str(
-                                        getattr(start_date, "tzinfo", "None")
-                                    ),
-                                    "period": period,
-                                    "filtering_method": "manual_fallback",
-                                },
-                                fallback_action="use_unfiltered_data",
-                                additional_context={
-                                    "dividends_length": len(dividends),
-                                    "start_date": (
-                                        start_date.isoformat()
-                                        if hasattr(start_date, "isoformat")
-                                        else str(start_date)
-                                    ),
-                                    "fallback_attempt": True,
-                                },
-                            )
-
-                            # Also log to standard logger
-                            self.logger.error(
-                                f"Fallback timezone handling failed for {formatted_symbol}: {fallback_error}"
-                            )
-                            # Last resort: continue with unfiltered data
-                            self.logger.warning(
-                                f"Using unfiltered dividend data for {formatted_symbol}"
-                            )
 
                 # Convert to DataFrame
                 dividend_df = dividends.reset_index()
