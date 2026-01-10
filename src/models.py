@@ -24,6 +24,12 @@ class ValueStock:
     sector_33: str = ""  # 33業種区分
     market_category: str = ""  # 市場・商品区分
     size_category: str = ""  # 規模区分
+    retrieved_at: Optional[datetime] = None  # 取得日時
+    # Historical data for CSV export (actual yfinance data only)
+    dividend_history: Dict[str, Any] = field(default_factory=dict)  # 配当履歴
+    revenue_history: Dict[str, Any] = field(default_factory=dict)  # 売上履歴
+    profit_history: Dict[str, Any] = field(default_factory=dict)  # 純利益履歴
+    per_history: Dict[str, Any] = field(default_factory=dict)  # PER履歴
 
 
 @dataclass

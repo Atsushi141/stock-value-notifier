@@ -23,6 +23,7 @@ from .data_fetcher import DataFetcher
 from .screening_engine import ScreeningEngine
 from .slack_notifier import SlackNotifier
 from .rotation_manager import RotationManager
+from .csv_exporter import CSVExporter
 from .models import ValueStock
 from .error_handling_config import ErrorHandlingConfig, ErrorHandlingConfigManager
 from .error_metrics import ErrorMetrics, AlertLevel
@@ -237,6 +238,7 @@ class WorkflowRunner:
         self.data_fetcher: Optional[DataFetcher] = None
         self.screening_engine: Optional[ScreeningEngine] = None
         self.slack_notifier: Optional[SlackNotifier] = None
+        self.csv_exporter: Optional[CSVExporter] = None
         self.rotation_manager: Optional[RotationManager] = None
 
         # Enhanced error metrics integration
@@ -758,9 +760,20 @@ class WorkflowRunner:
 
                 # Get target date for notification
                 target_date_str = os.getenv("TARGET_DATE", "")
+                if not target_date_str:
+                    target_date_str = target_date.strftime("%Y-%m-%d")
+
+                # Generate CSV files for value stocks
+                csv_files = self._generate_and_upload_csv_files(
+                    value_stocks, target_date_str
+                )
 
                 success = self.slack_notifier.send_value_stocks_notification(
-                    value_stocks, all_stock_names, rotation_info, target_date_str
+                    value_stocks,
+                    all_stock_names,
+                    rotation_info,
+                    target_date_str,
+                    csv_files,
                 )
                 if not success:
                     self.logger.error("Failed to send value stocks notification")
@@ -783,9 +796,16 @@ class WorkflowRunner:
 
                 # Get target date for notification
                 target_date_str = os.getenv("TARGET_DATE", "")
+                if not target_date_str:
+                    target_date_str = target_date.strftime("%Y-%m-%d")
+
+                # For no stocks case, we don't generate CSV files
+                # but we could generate empty CSV files for consistency if needed
+                csv_files = None
+                self.logger.info("No value stocks found - skipping CSV generation")
 
                 success = self.slack_notifier.send_no_stocks_notification(
-                    all_stock_names, rotation_info, target_date
+                    all_stock_names, rotation_info, target_date_str, csv_files
                 )
                 if not success:
                     self.logger.error("Failed to send no stocks notification")
@@ -924,6 +944,10 @@ class WorkflowRunner:
 
             self.slack_notifier = SlackNotifier(self.config.slack_config)
             self.log_manager.log_system_health("slack_notifier", "INITIALIZED")
+
+            self.csv_exporter = CSVExporter()
+            self.log_manager.log_system_health("csv_exporter", "INITIALIZED")
+            self.log_manager.log_system_health("csv_exporter", "INITIALIZED")
 
             self.rotation_manager = RotationManager()
             self.log_manager.log_system_health("rotation_manager", "INITIALIZED")
@@ -1199,6 +1223,55 @@ class WorkflowRunner:
 
         except Exception as e:
             self.logger.error(f"Error logging comprehensive summary: {e}")
+
+    def _generate_and_upload_csv_files(
+        self, value_stocks: List[ValueStock], target_date_str: str
+    ) -> Optional[Dict[str, str]]:
+        """Generate and upload CSV files with comprehensive error handling.
+
+        Args:
+            value_stocks: List of value stocks to export
+            target_date_str: Target date string for file naming
+
+        Returns:
+            Dictionary of file paths if successful, None if failed
+        """
+        if not value_stocks:
+            self.logger.info("No value stocks to export to CSV")
+            return None
+
+        try:
+            # Generate CSV files
+            self.logger.info(
+                f"Generating CSV files for {len(value_stocks)} value stocks"
+            )
+            csv_files = self.csv_exporter.export_all_csv_files(
+                value_stocks, target_date_str
+            )
+
+            if csv_files:
+                self.logger.info(f"Successfully generated {len(csv_files)} CSV files")
+                for file_type, filepath in csv_files.items():
+                    self.logger.info(f"  {file_type}: {filepath}")
+
+                # Log CSV generation metrics
+                csv_metrics = {
+                    "files_generated": len(csv_files),
+                    "stocks_exported": len(value_stocks),
+                    "target_date": target_date_str,
+                    "file_types": list(csv_files.keys()),
+                }
+                self.log_manager.log_performance_metrics(csv_metrics)
+
+                return csv_files
+            else:
+                self.logger.warning("CSV generation returned empty file list")
+                return None
+
+        except Exception as e:
+            self.logger.error(f"Failed to generate CSV files: {str(e)}")
+            self.log_manager.log_critical_error(e, "csv_generation")
+            return None
 
     def reset_error_metrics(self) -> None:
         """

@@ -2,7 +2,8 @@
 
 import logging
 from datetime import datetime
-from typing import List, Optional
+from pathlib import Path
+from typing import List, Optional, Dict, Any
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
@@ -28,32 +29,41 @@ class SlackNotifier:
         all_stocks: List[str] = None,
         group_info: dict = None,
         target_date: str = None,
+        csv_files: Dict[str, str] = None,
     ) -> bool:
-        """Send notification about found value stocks.
+        """Send notification about found value stocks with optional CSV files.
 
         Args:
             stocks: List of ValueStock objects to notify about
             all_stocks: List of all stock names that were analyzed
             group_info: Optional rotation group information for progress display
             target_date: Optional target date for analysis (YYYY-MM-DD format)
+            csv_files: Optional dictionary mapping file types to file paths
 
         Returns:
             bool: True if notification was sent successfully, False otherwise
         """
         if not stocks:
-            return self.send_no_stocks_notification(all_stocks, group_info, target_date)
+            return self.send_no_stocks_notification(
+                all_stocks, group_info, target_date, csv_files
+            )
 
         try:
             message = self.format_value_stocks_message_bilingual(
                 stocks, all_stocks, group_info, target_date
             )
 
+            # Send main message first
             response = self.client.chat_postMessage(
                 channel=self.config.channel,
                 text=message,
                 username=self.config.username,
                 icon_emoji=self.config.icon_emoji,
             )
+
+            # Upload CSV files if provided
+            if csv_files:
+                self._upload_csv_files(csv_files, stocks, target_date)
 
             self.logger.info(
                 f"Successfully sent value stocks notification to {self.config.channel}"
@@ -72,6 +82,7 @@ class SlackNotifier:
         all_stocks: List[str] = None,
         group_info: dict = None,
         target_date: str = None,
+        csv_files: Dict[str, str] = None,
     ) -> bool:
         """Send notification when no value stocks are found.
 
@@ -79,6 +90,7 @@ class SlackNotifier:
             all_stocks: List of all stock names that were analyzed
             group_info: Optional rotation group information for progress display
             target_date: Optional target date for analysis (YYYY-MM-DD format)
+            csv_files: Optional dictionary mapping file types to file paths
 
         Returns:
             bool: True if notification was sent successfully, False otherwise
@@ -94,6 +106,10 @@ class SlackNotifier:
                 username=self.config.username,
                 icon_emoji=self.config.icon_emoji,
             )
+
+            # Upload CSV files if provided
+            if csv_files:
+                self._upload_csv_files(csv_files, [], target_date)
 
             self.logger.info(
                 f"Successfully sent no stocks notification to {self.config.channel}"
@@ -693,3 +709,159 @@ class SlackNotifier:
         except Exception as e:
             self.logger.warning(f"Failed to send rotation summary: {str(e)}")
             return False
+
+    def upload_csv_files(
+        self,
+        csv_files: Dict[str, str],
+        stocks: List[ValueStock] = None,
+        target_date: str = None,
+    ) -> bool:
+        """Upload CSV files to Slack channel (public interface).
+
+        Args:
+            csv_files: Dictionary mapping file types to file paths
+            stocks: List of ValueStock objects (for context)
+            target_date: Optional target date for file naming
+
+        Returns:
+            bool: True if all files uploaded successfully, False otherwise
+        """
+        return self._upload_csv_files(csv_files, stocks or [], target_date)
+
+    def _upload_csv_files(
+        self,
+        csv_files: Dict[str, str],
+        stocks: List[ValueStock],
+        target_date: str = None,
+    ) -> bool:
+        """Upload CSV files to Slack channel with enhanced error handling.
+
+        Args:
+            csv_files: Dictionary mapping file types to file paths
+            stocks: List of ValueStock objects (for context)
+            target_date: Optional target date for file naming
+
+        Returns:
+            bool: True if all files uploaded successfully, False otherwise
+        """
+        if not csv_files:
+            self.logger.info("No CSV files to upload")
+            return True
+
+        upload_success = True
+        uploaded_files = []
+        failed_files = []
+
+        # File type to Japanese/English names mapping
+        file_descriptions = {
+            "main_jp": "メインデータ（日本語）/ Main Data (Japanese)",
+            "main_en": "メインデータ（英語）/ Main Data (English)",
+            "history_jp": "履歴データ（日本語）/ Historical Data (Japanese)",
+            "history_en": "履歴データ（英語）/ Historical Data (English)",
+        }
+
+        self.logger.info(f"Starting upload of {len(csv_files)} CSV files")
+
+        for file_type, filepath in csv_files.items():
+            try:
+                if not Path(filepath).exists():
+                    self.logger.warning(f"CSV file not found: {filepath}")
+                    failed_files.append(Path(filepath).name)
+                    upload_success = False
+                    continue
+
+                # Create file description
+                description = file_descriptions.get(
+                    file_type, f"CSV Data ({file_type})"
+                )
+                if stocks:
+                    description += f" - {len(stocks)} 銘柄 / {len(stocks)} stocks"
+
+                # Upload file with retry logic
+                max_retries = 3
+                retry_count = 0
+                upload_successful = False
+
+                while retry_count < max_retries and not upload_successful:
+                    try:
+                        response = self.client.files_upload_v2(
+                            channel=self.config.channel,
+                            file=filepath,
+                            title=Path(filepath).name,
+                            initial_comment=f"📊 **{description}**",
+                            filename=Path(filepath).name,
+                        )
+
+                        if response["ok"]:
+                            uploaded_files.append(Path(filepath).name)
+                            self.logger.info(
+                                f"Successfully uploaded CSV file: {Path(filepath).name}"
+                            )
+                            upload_successful = True
+                        else:
+                            error_msg = response.get("error", "Unknown error")
+                            self.logger.error(
+                                f"Failed to upload CSV file {filepath}: {error_msg}"
+                            )
+                            if retry_count < max_retries - 1:
+                                self.logger.info(
+                                    f"Retrying upload ({retry_count + 1}/{max_retries})"
+                                )
+                                retry_count += 1
+                            else:
+                                failed_files.append(Path(filepath).name)
+                                upload_success = False
+                                break
+
+                    except Exception as upload_error:
+                        self.logger.error(
+                            f"Upload attempt {retry_count + 1} failed: {str(upload_error)}"
+                        )
+                        if retry_count < max_retries - 1:
+                            retry_count += 1
+                        else:
+                            failed_files.append(Path(filepath).name)
+                            upload_success = False
+                            break
+
+            except Exception as e:
+                self.logger.error(f"Error uploading CSV file {filepath}: {str(e)}")
+                failed_files.append(Path(filepath).name)
+                upload_success = False
+
+        # Send summary message if files were uploaded or failed
+        try:
+            if uploaded_files or failed_files:
+                summary_msg = (
+                    f"📁 **CSVファイルアップロード結果 / CSV Upload Results**\n\n"
+                )
+
+                if uploaded_files:
+                    summary_msg += f"✅ **成功 / Successful uploads:**\n"
+                    for filename in uploaded_files:
+                        summary_msg += f"• {filename}\n"
+                    summary_msg += "\n"
+
+                if failed_files:
+                    summary_msg += f"❌ **失敗 / Failed uploads:**\n"
+                    for filename in failed_files:
+                        summary_msg += f"• {filename}\n"
+                    summary_msg += "\n"
+
+                if target_date:
+                    summary_msg += f"📅 データ日付 / Data Date: {target_date}"
+
+                self.client.chat_postMessage(
+                    channel=self.config.channel,
+                    text=summary_msg,
+                    username=self.config.username,
+                    icon_emoji=":file_folder:",
+                )
+
+                self.logger.info(
+                    f"CSV upload summary: {len(uploaded_files)} successful, {len(failed_files)} failed"
+                )
+        except Exception as e:
+            self.logger.warning(f"Failed to send CSV upload summary: {str(e)}")
+
+        return upload_success
