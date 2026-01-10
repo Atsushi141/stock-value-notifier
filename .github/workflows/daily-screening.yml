@@ -89,7 +89,7 @@ jobs:
           echo "FORCE_EXECUTION=false" >> $GITHUB_ENV
         fi
     
-    - name: Check for existing data cache
+    - name: Validate target date
       if: env.TARGET_DATE != ''
       run: |
         echo "Validating target date: $TARGET_DATE"
@@ -117,6 +117,8 @@ jobs:
         fi
         
         echo "Target date validation passed: $TARGET_DATE"
+    
+    - name: Check for existing data cache
       if: env.SCREENING_MODE == 'all'
       id: check-cache
       run: |
