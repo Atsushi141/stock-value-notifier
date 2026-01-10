@@ -17,6 +17,15 @@ on:
         - curated
         - all
         - rotation
+      target_date:
+        description: 'Target date for analysis (YYYY-MM-DD, within last 7 days, leave empty for today)'
+        required: false
+        type: string
+      force_execution:
+        description: 'Force execution even on market closed days'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   screen-value-stocks:
@@ -39,8 +48,9 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-
     
-    - name: Set screening mode based on schedule
+    - name: Set screening mode and date parameters
       run: |
+        # Set screening mode based on schedule
         if [ "${{ github.event.schedule }}" = "0 21 * * 6" ]; then
           echo "SCREENING_MODE=all" >> $GITHUB_ENV
           echo "ANALYSIS_PERIOD=1y" >> $GITHUB_ENV
@@ -61,8 +71,52 @@ jobs:
           fi
           echo "Manual screening mode: ${{ github.event.inputs.screening_mode }}"
         fi
+        
+        # Set target date
+        if [ "${{ github.event.inputs.target_date }}" != "" ]; then
+          echo "TARGET_DATE=${{ github.event.inputs.target_date }}" >> $GITHUB_ENV
+          echo "Target date specified: ${{ github.event.inputs.target_date }}"
+        else
+          echo "TARGET_DATE=" >> $GITHUB_ENV
+          echo "Using current date"
+        fi
+        
+        # Set force execution flag
+        if [ "${{ github.event.inputs.force_execution }}" = "true" ]; then
+          echo "FORCE_EXECUTION=true" >> $GITHUB_ENV
+          echo "Force execution enabled"
+        else
+          echo "FORCE_EXECUTION=false" >> $GITHUB_ENV
+        fi
     
     - name: Check for existing data cache
+      if: env.TARGET_DATE != ''
+      run: |
+        echo "Validating target date: $TARGET_DATE"
+        
+        # Check if date format is valid (YYYY-MM-DD)
+        if ! date -d "$TARGET_DATE" >/dev/null 2>&1; then
+          echo "Error: Invalid date format. Please use YYYY-MM-DD format."
+          exit 1
+        fi
+        
+        # Check if date is within last 7 days
+        target_timestamp=$(date -d "$TARGET_DATE" +%s)
+        current_timestamp=$(date +%s)
+        seven_days_ago=$((current_timestamp - 7 * 24 * 3600))
+        
+        if [ $target_timestamp -lt $seven_days_ago ]; then
+          echo "Error: Target date must be within the last 7 days."
+          echo "Earliest allowed date: $(date -d '@'$seven_days_ago '+%Y-%m-%d')"
+          exit 1
+        fi
+        
+        if [ $target_timestamp -gt $current_timestamp ]; then
+          echo "Error: Target date cannot be in the future."
+          exit 1
+        fi
+        
+        echo "Target date validation passed: $TARGET_DATE"
       if: env.SCREENING_MODE == 'all'
       id: check-cache
       run: |

@@ -251,8 +251,8 @@ class WorkflowRunner:
 
         Orchestrates the complete daily screening workflow:
         1. Setup environment and configuration
-        2. Check if market is open
-        3. Execute daily screening if market is open
+        2. Check if market is open (with optional date override)
+        3. Execute daily screening if market is open or forced
         4. Monitor error metrics and send alerts if needed
         5. Handle any errors and send notifications
         """
@@ -271,12 +271,47 @@ class WorkflowRunner:
             # Setup environment and load configuration
             self.setup_environment()
 
-            # Check if today is a market trading day
-            today = date.today()
-            if not self.is_market_open(today):
-                self.logger.info(f"Market is closed on {today}. Skipping screening.")
+            # Get target date and force execution flag from environment
+            target_date_str = os.getenv("TARGET_DATE", "")
+            force_execution = os.getenv("FORCE_EXECUTION", "false").lower() == "true"
+
+            # Determine the date to check
+            if target_date_str:
+                try:
+                    target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+                    self.logger.info(f"Using specified target date: {target_date}")
+                except ValueError as e:
+                    self.logger.error(
+                        f"Invalid target date format: {target_date_str}. Using today."
+                    )
+                    target_date = date.today()
+            else:
+                target_date = date.today()
+                self.logger.info(f"Using current date: {target_date}")
+
+            # Check if market is open on target date
+            market_open = self.is_market_open(target_date)
+
+            if not market_open and not force_execution:
+                self.logger.info(
+                    f"Market is closed on {target_date}. Skipping screening."
+                )
+                self.logger.info("Use FORCE_EXECUTION=true to run anyway.")
                 self._log_completion_metrics(skipped=True)
                 return
+            elif not market_open and force_execution:
+                self.logger.warning(
+                    f"Market is closed on {target_date}, but force execution is enabled."
+                )
+                self.logger.warning("Running screening despite market closure.")
+
+            # Log the execution context
+            if target_date_str:
+                self.logger.info(
+                    f"Executing screening for historical date: {target_date}"
+                )
+            else:
+                self.logger.info(f"Executing screening for current date: {target_date}")
 
             # Execute daily screening with error monitoring
             self.execute_daily_screening()
@@ -699,8 +734,11 @@ class WorkflowRunner:
                 if screening_mode == "rotation":
                     rotation_info = self.rotation_manager.get_group_info()
 
+                # Get target date for notification
+                target_date = os.getenv("TARGET_DATE", "")
+
                 success = self.slack_notifier.send_value_stocks_notification(
-                    value_stocks, all_stock_names, rotation_info
+                    value_stocks, all_stock_names, rotation_info, target_date
                 )
                 if not success:
                     self.logger.error("Failed to send value stocks notification")
@@ -721,8 +759,11 @@ class WorkflowRunner:
                 if screening_mode == "rotation":
                     rotation_info = self.rotation_manager.get_group_info()
 
+                # Get target date for notification
+                target_date = os.getenv("TARGET_DATE", "")
+
                 success = self.slack_notifier.send_no_stocks_notification(
-                    all_stock_names, rotation_info
+                    all_stock_names, rotation_info, target_date
                 )
                 if not success:
                     self.logger.error("Failed to send no stocks notification")

@@ -116,6 +116,8 @@ def validate_github_actions_environment():
         "MAX_PER_VOLATILITY": os.getenv("MAX_PER_VOLATILITY", "30.0"),
         "SLACK_USERNAME": os.getenv("SLACK_USERNAME", "バリュー株通知Bot"),
         "SLACK_ICON_EMOJI": os.getenv("SLACK_ICON_EMOJI", ":chart_with_upwards_trend:"),
+        "TARGET_DATE": os.getenv("TARGET_DATE", ""),
+        "FORCE_EXECUTION": os.getenv("FORCE_EXECUTION", "false"),
     }
 
     logger.info("Optional configuration:")

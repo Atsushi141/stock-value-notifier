@@ -27,6 +27,7 @@ class SlackNotifier:
         stocks: List[ValueStock],
         all_stocks: List[str] = None,
         group_info: dict = None,
+        target_date: str = None,
     ) -> bool:
         """Send notification about found value stocks.
 
@@ -34,16 +35,17 @@ class SlackNotifier:
             stocks: List of ValueStock objects to notify about
             all_stocks: List of all stock names that were analyzed
             group_info: Optional rotation group information for progress display
+            target_date: Optional target date for analysis (YYYY-MM-DD format)
 
         Returns:
             bool: True if notification was sent successfully, False otherwise
         """
         if not stocks:
-            return self.send_no_stocks_notification(all_stocks, group_info)
+            return self.send_no_stocks_notification(all_stocks, group_info, target_date)
 
         try:
             message = self.format_value_stocks_message_bilingual(
-                stocks, all_stocks, group_info
+                stocks, all_stocks, group_info, target_date
             )
 
             response = self.client.chat_postMessage(
@@ -66,19 +68,25 @@ class SlackNotifier:
             return False
 
     def send_no_stocks_notification(
-        self, all_stocks: List[str] = None, group_info: dict = None
+        self,
+        all_stocks: List[str] = None,
+        group_info: dict = None,
+        target_date: str = None,
     ) -> bool:
         """Send notification when no value stocks are found.
 
         Args:
             all_stocks: List of all stock names that were analyzed
             group_info: Optional rotation group information for progress display
+            target_date: Optional target date for analysis (YYYY-MM-DD format)
 
         Returns:
             bool: True if notification was sent successfully, False otherwise
         """
         try:
-            message = self.format_no_stocks_message_bilingual(all_stocks, group_info)
+            message = self.format_no_stocks_message_bilingual(
+                all_stocks, group_info, target_date
+            )
 
             response = self.client.chat_postMessage(
                 channel=self.config.channel,
@@ -106,6 +114,7 @@ class SlackNotifier:
         stocks: List[ValueStock],
         all_stocks: List[str] = None,
         group_info: dict = None,
+        target_date: str = None,
     ) -> str:
         """Format value stocks message in both Japanese and English.
 
@@ -113,18 +122,19 @@ class SlackNotifier:
             stocks: List of ValueStock objects to format
             all_stocks: List of all stock names that were analyzed
             group_info: Optional rotation group information for progress display
+            target_date: Optional target date for analysis (YYYY-MM-DD format)
 
         Returns:
             str: Formatted bilingual message with Japanese first, then English
         """
         # Japanese message first (as per requirement 3.3)
         japanese_msg = self._format_japanese_stocks_message(
-            stocks, all_stocks, group_info
+            stocks, all_stocks, group_info, target_date
         )
 
         # English message second
         english_msg = self._format_english_stocks_message(
-            stocks, all_stocks, group_info
+            stocks, all_stocks, group_info, target_date
         )
 
         # Combine with clear separator
@@ -135,11 +145,15 @@ class SlackNotifier:
         stocks: List[ValueStock],
         all_stocks: List[str] = None,
         group_info: dict = None,
+        target_date: str = None,
     ) -> str:
         """Format Japanese stocks message with readable formatting.
 
         Args:
             stocks: List of ValueStock objects to format
+            all_stocks: List of all stock names that were analyzed
+            group_info: Optional rotation group information for progress display
+            target_date: Optional target date for analysis (YYYY-MM-DD format)
             all_stocks: List of all stock names that were analyzed
             group_info: Optional rotation group information for progress display
 
@@ -148,9 +162,22 @@ class SlackNotifier:
         """
         # Add rotation group info if provided (要件 7.5)
         if group_info:
-            msg = f"🎯 **本日のバリュー銘柄** - {group_info['progress_text_jp']}\n\n"
+            title = f"🎯 **本日のバリュー銘柄** - {group_info['progress_text_jp']}"
         else:
-            msg = "🎯 **本日のバリュー銘柄**\n\n"
+            title = "🎯 **本日のバリュー銘柄**"
+
+        # Add date information if target date is specified
+        if target_date:
+            from datetime import datetime
+
+            try:
+                date_obj = datetime.strptime(target_date, "%Y-%m-%d")
+                date_str = date_obj.strftime("%Y年%m月%d日")
+                title += f" ({date_str})"
+            except ValueError:
+                title += f" ({target_date})"
+
+        msg = title + "\n\n"
 
         for i, stock in enumerate(stocks, 1):
             msg += f"**{i}. {stock.name} ({stock.code})**\n"
@@ -183,6 +210,7 @@ class SlackNotifier:
         stocks: List[ValueStock],
         all_stocks: List[str] = None,
         group_info: dict = None,
+        target_date: str = None,
     ) -> str:
         """Format English stocks message with readable formatting.
 
@@ -196,9 +224,22 @@ class SlackNotifier:
         """
         # Add rotation group info if provided (要件 7.5)
         if group_info:
-            msg = f"🎯 **Today's Value Stocks** - {group_info['progress_text_en']}\n\n"
+            title = f"🎯 **Today's Value Stocks** - {group_info['progress_text_en']}"
         else:
-            msg = "🎯 **Today's Value Stocks**\n\n"
+            title = "🎯 **Today's Value Stocks**"
+
+        # Add date information if target date is specified
+        if target_date:
+            from datetime import datetime
+
+            try:
+                date_obj = datetime.strptime(target_date, "%Y-%m-%d")
+                date_str = date_obj.strftime("%B %d, %Y")
+                title += f" ({date_str})"
+            except ValueError:
+                title += f" ({target_date})"
+
+        msg = title + "\n\n"
 
         for i, stock in enumerate(stocks, 1):
             msg += f"**{i}. {stock.name} ({stock.code})**\n"
@@ -227,7 +268,10 @@ class SlackNotifier:
         return msg
 
     def format_no_stocks_message_bilingual(
-        self, all_stocks: List[str] = None, group_info: dict = None
+        self,
+        all_stocks: List[str] = None,
+        group_info: dict = None,
+        target_date: str = None,
     ) -> str:
         """Format no stocks found message in both Japanese and English.
 
