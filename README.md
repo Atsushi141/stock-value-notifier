@@ -554,27 +554,123 @@ pytest test/ -v --hypothesis-show-statistics
 
 ```
 stock-value-notifier/
-├── .github/
+├── .github/                                    # GitHub Actions設定
 │   └── workflows/
-│       └── daily-screening.yml    # GitHub Actions ワークフロー
-├── src/                           # ソースコード
-│   ├── __init__.py
-│   ├── config_manager.py          # 設定管理
-│   ├── data_fetcher.py            # データ取得
-│   ├── models.py                  # データモデル
-│   ├── rotation_manager.py        # 銘柄ローテーション管理
-│   ├── screening_engine.py        # スクリーニングエンジン
-│   ├── slack_notifier.py          # Slack通知
-│   └── workflow_runner.py         # ワークフロー実行
-├── test/                          # テストコード
-│   ├── test_config_manager.py
-│   ├── test_data_fetcher.py
-│   └── test_slack_notifier.py
-├── logs/                          # ログファイル
-├── main.py                        # メイン実行スクリプト
-├── requirements.txt               # 依存関係
-└── README.md                      # このファイル
+│       └── daily-screening.yml                # 自動実行ワークフロー
+├── src/                                        # メインソースコード
+│   ├── __init__.py                            # パッケージ初期化
+│   ├── cache_manager.py                       # キャッシュ管理
+│   ├── config_manager.py                      # 設定管理
+│   ├── data_fetcher.py                        # データ取得（yfinance）
+│   ├── data_validator.py                      # データ検証
+│   ├── enhanced_logger.py                     # ログ管理
+│   ├── error_handler.py                       # エラーハンドリング
+│   ├── error_handling_config.py               # エラーハンドリング設定
+│   ├── error_metrics.py                       # エラーメトリクス
+│   ├── exceptions.py                          # カスタム例外
+│   ├── models.py                              # データモデル
+│   ├── retry_manager.py                       # リトライ処理
+│   ├── rotation_manager.py                    # 銘柄ローテーション管理
+│   ├── screening_engine.py                    # スクリーニングエンジン
+│   ├── slack_notifier.py                      # Slack通知
+│   ├── symbol_filter.py                       # 銘柄フィルタ
+│   ├── symbol_validator.py                    # 銘柄検証
+│   ├── timezone_handler.py                    # タイムゾーン処理
+│   ├── tse_stock_list_manager.py              # TSE銘柄リスト管理
+│   ├── validation_error_processor.py          # 検証エラー処理
+│   └── workflow_runner.py                     # ワークフロー実行
+├── test/                                       # テストコード
+│   ├── test_cache_idempotency.py              # キャッシュ冪等性テスト
+│   ├── test_config_manager.py                 # 設定管理テスト
+│   ├── test_data_fetcher.py                   # データ取得テスト
+│   ├── test_data_validation.py                # データ検証テスト
+│   ├── test_delisted_stock_handling.py        # 上場廃止銘柄処理テスト
+│   ├── test_error_conditions.py               # エラー条件テスト
+│   ├── test_error_handler.py                  # エラーハンドリングテスト
+│   ├── test_error_handling_config.py          # エラーハンドリング設定テスト
+│   ├── test_error_metrics.py                  # エラーメトリクステスト
+│   ├── test_optimized_stock_fetcher.py        # 最適化データ取得テスト
+│   ├── test_performance_stability.py          # パフォーマンス安定性テスト
+│   ├── test_retry_manager.py                  # リトライ管理テスト
+│   ├── test_rotation_properties.py            # ローテーションプロパティテスト
+│   ├── test_rotation.py                       # ローテーションテスト
+│   ├── test_slack_notifier.py                 # Slack通知テスト
+│   ├── test_symbol_filter.py                  # 銘柄フィルタテスト
+│   ├── test_tse_integration.py                # TSE統合テスト
+│   ├── test_tse_performance.py                # TSEパフォーマンステスト
+│   ├── test_tse_stock_list_manager.py         # TSE銘柄リストテスト
+│   ├── test_yfinance_methods.py               # yfinanceメソッドテスト
+│   └── test_yfinance_screener.py              # yfinanceスクリーナーテスト
+├── stock_list/                                 # TSE銘柄データ
+│   └── data_j.xls                             # TSE公式銘柄リスト
+├── cache/                                      # キャッシュディレクトリ
+│   ├── dividend_history.json                  # 配当履歴キャッシュ
+│   ├── financial_info.json                    # 財務情報キャッシュ
+│   └── tse_stocks_cache.json                  # TSE銘柄キャッシュ
+├── logs/                                       # ログディレクトリ
+│   ├── .gitkeep                               # ディレクトリ保持用
+│   ├── data_retrieval_demonstration_report.md # データ取得デモレポート
+│   ├── delisted_stocks.log                    # 上場廃止銘柄ログ
+│   ├── errors.log                             # エラーログ
+│   ├── github_actions.log                     # GitHub Actionsログ
+│   ├── health.log                             # ヘルスチェックログ
+│   ├── stock_notifier.log                     # メインログ
+│   ├── timezone_errors.log                    # タイムゾーンエラーログ
+│   ├── tse_final_checkpoint_report.md         # TSE最終チェックポイントレポート
+│   ├── tse_integration_report.md              # TSE統合レポート
+│   ├── tse_integration_test.log               # TSE統合テストログ
+│   ├── tse_performance_report.md              # TSEパフォーマンスレポート
+│   ├── tse_performance_test.log               # TSEパフォーマンステストログ
+│   └── validation_errors.log                  # 検証エラーログ
+├── main.py                                     # メインエントリーポイント
+├── requirements.txt                            # Python依存関係
+├── README.md                                   # プロジェクト説明（このファイル）
+├── .gitignore                                  # Git除外設定
+├── comprehensive_demo.py                       # 包括的デモスクリプト
+├── simple_demo.py                             # シンプルデモスクリプト
+├── calculate_stocks.py                        # 銘柄数計算分析
+├── external_stock_sources.py                  # 外部データソース調査
+├── final_implementation_proposal.py           # 最終実装提案
+├── improved_stock_fetcher.py                  # 改良データ取得実装
+├── stock_reduction_analysis.py                # 銘柄削減ロジック分析
+├── validate_optimization.py                   # 最適化検証スクリプト
+└── tse_stocks_cache.json                      # TSE銘柄キャッシュファイル
 ```
+
+### ディレクトリ説明
+
+#### 📂 src/ - メインソースコード
+- **コア機能**: データ取得、スクリーニング、通知の主要機能
+- **管理機能**: 設定、キャッシュ、エラーハンドリング、ログ管理
+- **TSE統合**: 東証公式データファイル統合機能
+- **ローテーション**: 効率的な銘柄ローテーション機能
+
+#### 🧪 test/ - テストコード
+- **単体テスト**: 各モジュールの機能テスト
+- **統合テスト**: TSE統合、パフォーマンステスト
+- **プロパティテスト**: Hypothesisを使用した包括的テスト
+- **エラーテスト**: エラー条件とエッジケースのテスト
+
+#### 📊 stock_list/ - TSE銘柄データ
+- **data_j.xls**: 東証から提供される公式銘柄リストファイル
+- **ETF除外**: 約370銘柄のETF・投資信託を自動除外
+- **通常株式**: 約4,000銘柄の通常株式を対象
+
+#### 💾 cache/ - キャッシュディレクトリ
+- **dividend_history.json**: 配当履歴データのキャッシュ
+- **financial_info.json**: 財務情報データのキャッシュ
+- **tse_stocks_cache.json**: TSE銘柄リストのキャッシュ
+
+#### 📝 logs/ - ログディレクトリ
+- **実行ログ**: システムの動作ログとエラーログ
+- **テストログ**: TSE統合とパフォーマンステストのログ
+- **レポート**: 詳細な分析レポート（Markdown形式）
+
+#### 🔧 分析・最適化スクリプト
+- **デモスクリプト**: 機能確認用のデモ実行スクリプト
+- **分析スクリプト**: 銘柄数計算、削減ロジック分析
+- **最適化スクリプト**: パフォーマンス最適化と検証
+- **調査スクリプト**: 外部データソースの調査結果
 
 ## 🔒 セキュリティ
 
