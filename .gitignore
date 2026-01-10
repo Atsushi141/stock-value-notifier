@@ -46,3 +46,4 @@ logs/*.log
 # Cache
 .cache/
 .pytest_cache/
+*.csv
