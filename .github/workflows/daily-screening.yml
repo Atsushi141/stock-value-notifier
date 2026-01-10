@@ -62,13 +62,40 @@ jobs:
           echo "Manual screening mode: ${{ github.event.inputs.screening_mode }}"
         fi
     
-    - name: Download previous data cache
+    - name: Check for existing data cache
       if: env.SCREENING_MODE == 'all'
+      id: check-cache
+      run: |
+        echo "Checking for existing data cache..."
+        # Create cache directory if it doesn't exist
+        mkdir -p cache/
+        
+        # Check if cache files exist locally
+        if [ -f "cache/financial_info.json" ] && [ -f "cache/dividend_history.json" ]; then
+          echo "cache-exists=true" >> $GITHUB_OUTPUT
+          echo "Local cache files found"
+        else
+          echo "cache-exists=false" >> $GITHUB_OUTPUT
+          echo "No local cache files found"
+        fi
+    
+    - name: Download previous data cache
+      if: env.SCREENING_MODE == 'all' && steps.check-cache.outputs.cache-exists == 'false'
       uses: actions/download-artifact@v4
       with:
         name: stock-data-cache
         path: cache/
       continue-on-error: true
+      
+    - name: Initialize empty cache files
+      if: env.SCREENING_MODE == 'all' && steps.check-cache.outputs.cache-exists == 'false'
+      run: |
+        echo "Initializing empty cache files for first run..."
+        mkdir -p cache/
+        echo '{}' > cache/financial_info.json
+        echo '{}' > cache/dividend_history.json
+        echo '[]' > cache/tse_stocks_cache.json
+        echo "Empty cache files created"
     
     - name: Install dependencies
       run: |
@@ -81,7 +108,33 @@ jobs:
         SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
         TZ: Asia/Tokyo
       run: |
+        echo "Starting value stock screening..."
+        echo "Screening mode: $SCREENING_MODE"
+        echo "Analysis period: $ANALYSIS_PERIOD"
+        echo "Current time (JST): $(TZ=Asia/Tokyo date)"
+        
+        # Show cache status before running
+        if [ "$SCREENING_MODE" = "all" ]; then
+          echo "Cache directory contents:"
+          ls -la cache/ || echo "Cache directory not found"
+        fi
+        
         python main.py
+    
+    - name: Prepare cache for upload
+      if: env.SCREENING_MODE == 'all'
+      run: |
+        echo "Preparing cache files for upload..."
+        mkdir -p cache/
+        
+        # Ensure cache files exist (create empty ones if they don't)
+        [ ! -f "cache/financial_info.json" ] && echo '{}' > cache/financial_info.json
+        [ ! -f "cache/dividend_history.json" ] && echo '{}' > cache/dividend_history.json
+        [ ! -f "cache/tse_stocks_cache.json" ] && echo '[]' > cache/tse_stocks_cache.json
+        
+        # Show cache file sizes
+        ls -la cache/
+        echo "Cache preparation completed"
     
     - name: Upload data cache
       if: env.SCREENING_MODE == 'all'
