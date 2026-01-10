@@ -17,6 +17,34 @@ class ScreeningEngine:
         """
         self.config = config or ScreeningConfig()
 
+    def _safe_float(self, value, default=float("inf")):
+        """Safely convert value to float, handling strings and None values."""
+        if value is None or pd.isna(value):
+            return default
+
+        # Handle string values
+        if isinstance(value, str):
+            # Common string representations of invalid/missing data
+            invalid_strings = ["n/a", "na", "nan", "null", "none", "", "-"]
+            if value.lower().strip() in invalid_strings:
+                return default
+
+            # Try to convert string to float
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return default
+
+        # Handle numeric values
+        try:
+            float_val = float(value)
+            # Check for infinity or very large values that indicate missing data
+            if not np.isfinite(float_val) or abs(float_val) > 1e10:
+                return default
+            return float_val
+        except (ValueError, TypeError, OverflowError):
+            return default
+
     def screen_value_stocks(self, stock_data: pd.DataFrame) -> List[ValueStock]:
         """Screen stocks based on value criteria.
 
@@ -61,14 +89,14 @@ class ScreeningEngine:
             if profit_growth_years < self.config.min_growth_years:
                 continue
 
-            # Create ValueStock object
+            # Create ValueStock object with safe type conversion
             value_stock = ValueStock(
                 code=row["code"],
                 name=row["name"],
-                current_price=row["current_price"],
-                per=row["per"],
-                pbr=row["pbr"],
-                dividend_yield=row["dividend_yield"],
+                current_price=self._safe_float(row["current_price"], 0.0),
+                per=self._safe_float(row["per"], float("inf")),
+                pbr=self._safe_float(row["pbr"], float("inf")),
+                dividend_yield=self._safe_float(row["dividend_yield"], 0.0),
                 dividend_growth_years=dividend_growth_years,
                 revenue_growth_years=revenue_growth_years,
                 profit_growth_years=profit_growth_years,
@@ -89,23 +117,29 @@ class ScreeningEngine:
         Returns:
             True if stock meets basic criteria, False otherwise
         """
-        # Check for NaN or invalid values
-        if pd.isna(row["per"]) or pd.isna(row["pbr"]) or pd.isna(row["dividend_yield"]):
+        # Convert values to float with proper error handling
+        per = self._safe_float(row["per"], float("inf"))
+        pbr = self._safe_float(row["pbr"], float("inf"))
+        dividend_yield = self._safe_float(row["dividend_yield"], 0.0)
+        current_price = self._safe_float(row["current_price"], 0.0)
+
+        # Check for invalid values
+        if not np.isfinite(per) or not np.isfinite(pbr):
             return False
 
-        if pd.isna(row["current_price"]) or row["current_price"] <= 0:
+        if current_price <= 0:
             return False
 
         # 要件 2.1: PER 15倍以下
-        if row["per"] > self.config.max_per:
+        if per > self.config.max_per:
             return False
 
         # 要件 2.2: PBR 1.5倍以下
-        if row["pbr"] > self.config.max_pbr:
+        if pbr > self.config.max_pbr:
             return False
 
         # 要件 2.3: 配当利回り2%以上
-        if row["dividend_yield"] < self.config.min_dividend_yield:
+        if dividend_yield < self.config.min_dividend_yield:
             return False
 
         return True
