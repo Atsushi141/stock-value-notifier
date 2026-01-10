@@ -696,33 +696,39 @@ class DataFetcher:
 
                 # Filter by period with improved timezone handling
                 if period:
-                    # Use timezone-aware datetime for comparison
-                    end_date = pd.Timestamp.now(tz="Asia/Tokyo")
-                    if period.endswith("y"):
-                        years = int(period[:-1])
-                        start_date = end_date - pd.Timedelta(days=years * 365)
-                    elif period.endswith("mo"):
-                        months = int(period[:-2])
-                        start_date = end_date - pd.Timedelta(days=months * 30)
-                    else:
-                        # Default to 1 year if period format is not recognized
-                        start_date = end_date - pd.Timedelta(days=365)
-
-                    # Handle timezone compatibility for filtering
                     try:
-                        # If dividends index has timezone info, align with it
+                        # Get current time in UTC to avoid timezone issues
+                        end_date = pd.Timestamp.now(tz="UTC")
+                        if period.endswith("y"):
+                            years = int(period[:-1])
+                            start_date = end_date - pd.Timedelta(days=years * 365)
+                        elif period.endswith("mo"):
+                            months = int(period[:-2])
+                            start_date = end_date - pd.Timedelta(days=months * 30)
+                        else:
+                            # Default to 1 year if period format is not recognized
+                            start_date = end_date - pd.Timedelta(days=365)
+
+                        # Handle timezone compatibility for filtering
                         if (
                             hasattr(dividends.index, "tz")
                             and dividends.index.tz is not None
                         ):
-                            # Convert our start_date to match dividends timezone
-                            start_date = start_date.tz_convert(dividends.index.tz)
+                            # Convert dividends index to UTC for comparison
+                            dividends_utc = dividends.copy()
+                            dividends_utc.index = dividends_utc.index.tz_convert("UTC")
+                            # Filter using UTC timestamps
+                            dividends = dividends_utc[dividends_utc.index >= start_date]
                         else:
-                            # If dividends index is timezone-naive, make our dates naive too
-                            start_date = start_date.tz_localize(None)
-
-                        # Filter dividends by date
-                        dividends = dividends[dividends.index >= start_date]
+                            # If dividends index is timezone-naive, convert to UTC
+                            dividends_with_tz = dividends.copy()
+                            dividends_with_tz.index = pd.to_datetime(
+                                dividends_with_tz.index
+                            ).tz_localize("UTC")
+                            # Filter using UTC timestamps
+                            dividends = dividends_with_tz[
+                                dividends_with_tz.index >= start_date
+                            ]
 
                     except Exception as tz_error:
                         # Log detailed timezone error using enhanced logger
@@ -738,7 +744,7 @@ class DataFetcher:
                                     getattr(start_date, "tzinfo", "None")
                                 ),
                                 "period": period,
-                                "filtering_method": "direct_comparison",
+                                "filtering_method": "utc_conversion",
                             },
                             fallback_action="skip_date_filtering",
                             additional_context={
