@@ -314,7 +314,7 @@ class WorkflowRunner:
                 self.logger.info(f"Executing screening for current date: {target_date}")
 
             # Execute daily screening with error monitoring
-            self.execute_daily_screening()
+            self.execute_daily_screening(target_date)
 
             # Check and send error alerts after screening
             self.check_and_send_error_alerts()
@@ -469,9 +469,12 @@ class WorkflowRunner:
         )
         return True
 
-    def execute_daily_screening(self) -> None:
+    def execute_daily_screening(self, target_date: date) -> None:
         """
         Execute the daily stock screening workflow with enhanced error monitoring.
+
+        Args:
+            target_date: The date for which to execute the screening
 
         This method:
         1. Fetches stock data from yfinance with error tracking
