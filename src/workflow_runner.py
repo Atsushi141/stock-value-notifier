@@ -514,17 +514,25 @@ class WorkflowRunner:
             if screening_mode == "rotation":
                 # For rotation mode, get all stocks first, then filter by rotation
                 all_stock_symbols = self.data_fetcher.get_japanese_stock_list(
-                    mode="all"
+                    mode="tse_official"  # Use TSE official list for better coverage
                 )
+
+                # Use target_date for rotation if specified
+                rotation_date = (
+                    datetime.combine(target_date, datetime.min.time())
+                    if target_date != date.today()
+                    else None
+                )
+
                 stock_symbols = self.rotation_manager.get_stocks_for_today(
-                    all_stock_symbols
+                    all_stock_symbols, rotation_date
                 )
 
                 # Get rotation info for notifications
-                rotation_info = self.rotation_manager.get_group_info()
+                rotation_info = self.rotation_manager.get_group_info(rotation_date)
                 self.logger.info(
                     f"Rotation mode: Processing {rotation_info['progress_text_jp']} "
-                    f"({len(stock_symbols)} stocks)"
+                    f"({len(stock_symbols)} stocks) for date {target_date}"
                 )
             else:
                 stock_symbols = self.data_fetcher.get_japanese_stock_list(
@@ -536,7 +544,7 @@ class WorkflowRunner:
 
             # Send start notification
             if screening_mode == "rotation":
-                rotation_info = self.rotation_manager.get_group_info()
+                rotation_info = self.rotation_manager.get_group_info(rotation_date)
                 self.slack_notifier.send_analysis_start_notification(
                     len(stock_symbols), screening_mode, rotation_info
                 )
@@ -577,17 +585,28 @@ class WorkflowRunner:
                         symbol, period=analysis_period
                     )
 
-                    # Prepare data for screening
+                    # Prepare data for screening with proper NaN handling
                     stock_data = {
                         "code": symbol,
                         "name": financial_info.get(
                             "shortName", financial_info.get("longName", symbol)
                         ),
-                        "current_price": financial_info.get("currentPrice", 0),
-                        "per": financial_info.get("trailingPE", float("inf")),
-                        "pbr": financial_info.get("priceToBook", float("inf")),
-                        "dividend_yield": (financial_info.get("dividendYield", 0) or 0)
-                        * 100,  # Convert to percentage
+                        "current_price": financial_info.get("currentPrice", 0) or 0,
+                        "per": (
+                            financial_info.get("trailingPE")
+                            if financial_info.get("trailingPE") is not None
+                            and not pd.isna(financial_info.get("trailingPE"))
+                            else float("inf")
+                        ),
+                        "pbr": (
+                            financial_info.get("priceToBook")
+                            if financial_info.get("priceToBook") is not None
+                            and not pd.isna(financial_info.get("priceToBook"))
+                            else float("inf")
+                        ),
+                        "dividend_yield": (
+                            financial_info.get("dividendYield", 0) or 0
+                        ),  # Already in percentage format
                         "financial_data": {
                             "statements": self._extract_financial_statements(
                                 financial_info, price_history
@@ -732,13 +751,13 @@ class WorkflowRunner:
                 # Include rotation info in notification if in rotation mode
                 rotation_info = None
                 if screening_mode == "rotation":
-                    rotation_info = self.rotation_manager.get_group_info()
+                    rotation_info = self.rotation_manager.get_group_info(rotation_date)
 
                 # Get target date for notification
-                target_date = os.getenv("TARGET_DATE", "")
+                target_date_str = os.getenv("TARGET_DATE", "")
 
                 success = self.slack_notifier.send_value_stocks_notification(
-                    value_stocks, all_stock_names, rotation_info, target_date
+                    value_stocks, all_stock_names, rotation_info, target_date_str
                 )
                 if not success:
                     self.logger.error("Failed to send value stocks notification")
@@ -757,10 +776,10 @@ class WorkflowRunner:
                 # Include rotation info in notification if in rotation mode
                 rotation_info = None
                 if screening_mode == "rotation":
-                    rotation_info = self.rotation_manager.get_group_info()
+                    rotation_info = self.rotation_manager.get_group_info(rotation_date)
 
                 # Get target date for notification
-                target_date = os.getenv("TARGET_DATE", "")
+                target_date_str = os.getenv("TARGET_DATE", "")
 
                 success = self.slack_notifier.send_no_stocks_notification(
                     all_stock_names, rotation_info, target_date

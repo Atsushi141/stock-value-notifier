@@ -696,43 +696,31 @@ class DataFetcher:
 
                 # Filter by period with improved timezone handling
                 if period:
-                    end_date = datetime.now()
+                    # Use timezone-aware datetime for comparison
+                    end_date = pd.Timestamp.now(tz='Asia/Tokyo')
                     if period.endswith("y"):
                         years = int(period[:-1])
-                        start_date = end_date - timedelta(days=years * 365)
+                        start_date = end_date - pd.Timedelta(days=years * 365)
                     elif period.endswith("mo"):
                         months = int(period[:-2])
-                        start_date = end_date - timedelta(days=months * 30)
+                        start_date = end_date - pd.Timedelta(days=months * 30)
                     else:
                         # Default to 1 year if period format is not recognized
-                        start_date = end_date - timedelta(days=365)
+                        start_date = end_date - pd.Timedelta(days=365)
 
-                    # Use TimezoneHandler for safe filtering
+                    # Handle timezone compatibility for filtering
                     try:
-                        # Convert dividends Series to DataFrame for timezone handling
-                        dividends_df = dividends.reset_index()
-                        # Ensure the index column is named 'Date'
-                        if dividends_df.columns[0] != "Date":
-                            dividends_df = dividends_df.rename(
-                                columns={dividends_df.columns[0]: "Date"}
-                            )
-                        dividends_df = dividends_df.set_index("Date")
-
-                        # Apply safe datetime filtering
-                        filtered_df = self.timezone_handler.safe_datetime_filter(
-                            dividends_df, start_date
-                        )
-
-                        # Convert back to Series for consistency
-                        if not filtered_df.empty:
-                            dividends = filtered_df.iloc[
-                                :, 0
-                            ]  # Get the dividends column as Series
+                        # If dividends index has timezone info, align with it
+                        if hasattr(dividends.index, 'tz') and dividends.index.tz is not None:
+                            # Convert our start_date to match dividends timezone
+                            start_date = start_date.tz_convert(dividends.index.tz)
                         else:
-                            # Create empty Series with proper index
-                            dividends = pd.Series([], dtype="float64", name="Dividends")
-                            dividends.index.name = "Date"
-
+                            # If dividends index is timezone-naive, make our dates naive too
+                            start_date = start_date.tz_localize(None)
+                        
+                        # Filter dividends by date
+                        dividends = dividends[dividends.index >= start_date]
+                        
                     except Exception as tz_error:
                         # Log detailed timezone error using enhanced logger
                         self.enhanced_logger.log_timezone_error(
@@ -747,7 +735,20 @@ class DataFetcher:
                                     getattr(start_date, "tzinfo", "None")
                                 ),
                                 "period": period,
-                                "filtering_method": "safe_datetime_filter",
+                                "filtering_method": "direct_comparison",
+                            },
+                            fallback_action="skip_date_filtering",
+                            additional_context={
+                                "dividends_length": len(dividends),
+                                "start_date": str(start_date),
+                            },
+                        )
+
+                        # Also log to standard logger for backward compatibility
+                        self.logger.warning(
+                            f"Timezone filtering failed for {formatted_symbol}: {tz_error}. Using all available dividend data."
+                        )
+                        # Fallback: use all available dividend data without filtering
                             },
                             fallback_action="manual_timezone_handling",
                             additional_context={
@@ -982,9 +983,7 @@ class DataFetcher:
             self.logger.info(f"Validating {sector} range ({start}-{end})...")
 
             range_valid = 0
-            for code in range(
-                start, min(end, start + 30)
-            ):  # Max 30 per range for efficiency
+            for code in range(start, end):  # Get all stocks in range
                 symbol = f"{code}.T"
 
                 if self._validate_tse_stock_quickly(symbol):

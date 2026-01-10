@@ -53,6 +53,14 @@ class ScreeningEngine:
             )
             per_stability = self._calculate_per_stability(row.get("financial_data", {}))
 
+            # Check growth requirements (要件 2.4, 2.5, 2.6)
+            if dividend_growth_years < self.config.min_growth_years:
+                continue
+            if revenue_growth_years < self.config.min_growth_years:
+                continue
+            if profit_growth_years < self.config.min_growth_years:
+                continue
+
             # Create ValueStock object
             value_stock = ValueStock(
                 code=row["code"],
@@ -81,6 +89,13 @@ class ScreeningEngine:
         Returns:
             True if stock meets basic criteria, False otherwise
         """
+        # Check for NaN or invalid values
+        if pd.isna(row["per"]) or pd.isna(row["pbr"]) or pd.isna(row["dividend_yield"]):
+            return False
+
+        if pd.isna(row["current_price"]) or row["current_price"] <= 0:
+            return False
+
         # 要件 2.1: PER 15倍以下
         if row["per"] > self.config.max_per:
             return False
