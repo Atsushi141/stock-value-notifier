@@ -31,7 +31,7 @@ class SlackNotifier:
         target_date: str = None,
         csv_files: Dict[str, str] = None,
     ) -> bool:
-        """Send notification about found value stocks with optional CSV files.
+        """Send notification about found value stocks with optional CSV files and enhanced status reporting.
 
         Args:
             stocks: List of ValueStock objects to notify about
@@ -61,20 +61,61 @@ class SlackNotifier:
                 icon_emoji=self.config.icon_emoji,
             )
 
-            # Upload CSV files if provided
+            # Upload CSV files if provided with enhanced status reporting
+            csv_upload_success = True
             if csv_files:
-                self._upload_csv_files(csv_files, stocks, target_date)
+                self.logger.info(f"Attempting to upload {len(csv_files)} CSV files")
+                csv_upload_success = self._upload_csv_files(
+                    csv_files, stocks, target_date
+                )
 
-            self.logger.info(
-                f"Successfully sent value stocks notification to {self.config.channel}"
+                if not csv_upload_success:
+                    self.logger.warning(
+                        "CSV upload failed, sending failure notification"
+                    )
+                    # Send additional notification about CSV upload failure
+                    screening_summary = {
+                        "date": target_date,
+                        "mode": "value_stocks_found",
+                        "analyzed_stocks": len(all_stocks) if all_stocks else 0,
+                        "value_stocks_found": len(stocks),
+                    }
+                    self.send_csv_upload_failure_notification(
+                        csv_files,
+                        {"upload_errors": "Multiple file upload failures"},
+                        screening_summary,
+                    )
+
+            # Log comprehensive notification status
+            notification_status = {
+                "message_sent": True,
+                "csv_files_provided": len(csv_files) if csv_files else 0,
+                "csv_upload_success": csv_upload_success,
+                "stocks_count": len(stocks),
+                "target_date": target_date,
+            }
+
+            if csv_upload_success:
+                self.logger.info(
+                    f"Successfully sent value stocks notification with CSV files to {self.config.channel}"
+                )
+                self.logger.info(f"Notification status: {notification_status}")
+            else:
+                self.logger.warning(
+                    f"Sent value stocks notification but CSV upload failed: {notification_status}"
+                )
+
+            return (
+                True  # Return True if main message was sent, even if CSV upload failed
             )
-            return True
 
         except SlackApiError as e:
             self.logger.error(f"Slack API error: {e.response['error']}")
             return self._handle_slack_error(e)
         except Exception as e:
-            self.logger.error(f"Unexpected error sending notification: {str(e)}")
+            self.logger.error(
+                f"Unexpected error sending notification: {str(e)}", exc_info=True
+            )
             return False
 
     def send_no_stocks_notification(
@@ -84,7 +125,7 @@ class SlackNotifier:
         target_date: str = None,
         csv_files: Dict[str, str] = None,
     ) -> bool:
-        """Send notification when no value stocks are found.
+        """Send notification when no value stocks are found with enhanced CSV status reporting.
 
         Args:
             all_stocks: List of all stock names that were analyzed
@@ -107,21 +148,61 @@ class SlackNotifier:
                 icon_emoji=self.config.icon_emoji,
             )
 
-            # Upload CSV files if provided
+            # Upload CSV files if provided with enhanced status reporting
+            csv_upload_success = True
             if csv_files:
-                self._upload_csv_files(csv_files, [], target_date)
+                self.logger.info(
+                    f"Attempting to upload {len(csv_files)} summary/empty CSV files"
+                )
+                csv_upload_success = self._upload_csv_files(csv_files, [], target_date)
 
-            self.logger.info(
-                f"Successfully sent no stocks notification to {self.config.channel}"
+                if not csv_upload_success:
+                    self.logger.warning(
+                        "Summary CSV upload failed, sending failure notification"
+                    )
+                    # Send additional notification about CSV upload failure
+                    screening_summary = {
+                        "date": target_date,
+                        "mode": "no_stocks_found",
+                        "analyzed_stocks": len(all_stocks) if all_stocks else 0,
+                        "value_stocks_found": 0,
+                    }
+                    self.send_csv_upload_failure_notification(
+                        csv_files,
+                        {"upload_errors": "Summary file upload failures"},
+                        screening_summary,
+                    )
+
+            # Log comprehensive notification status
+            notification_status = {
+                "message_sent": True,
+                "csv_files_provided": len(csv_files) if csv_files else 0,
+                "csv_upload_success": csv_upload_success,
+                "analyzed_stocks": len(all_stocks) if all_stocks else 0,
+                "target_date": target_date,
+            }
+
+            if csv_upload_success:
+                self.logger.info(
+                    f"Successfully sent no stocks notification with CSV files to {self.config.channel}"
+                )
+                self.logger.info(f"Notification status: {notification_status}")
+            else:
+                self.logger.warning(
+                    f"Sent no stocks notification but CSV upload failed: {notification_status}"
+                )
+
+            return (
+                True  # Return True if main message was sent, even if CSV upload failed
             )
-            return True
 
         except SlackApiError as e:
             self.logger.error(f"Slack API error: {e.response['error']}")
             return self._handle_slack_error(e)
         except Exception as e:
             self.logger.error(
-                f"Unexpected error sending no stocks notification: {str(e)}"
+                f"Unexpected error sending no stocks notification: {str(e)}",
+                exc_info=True,
             )
             return False
 
@@ -579,7 +660,7 @@ class SlackNotifier:
         self.logger.info("Attempting fallback notification methods")
 
         # Try common fallback channels
-        fallback_channels = ["#general", "#alerts", "#notifications"]
+        fallback_channels = ["#general", "#alerts", "#notifications", "#random"]
 
         for channel in fallback_channels:
             if channel != self.config.channel:
@@ -604,11 +685,151 @@ class SlackNotifier:
                     )
                     continue
 
-        # If all fallback channels fail, log the error for admin review
+        # If all fallback channels fail, try text-based summary
+        if self._try_text_based_fallback(error_details):
+            return True
+
+        # If all notification methods fail, log the error for admin review
         self._log_admin_alert(
             "All notification channels failed - manual intervention required"
         )
         return False
+
+    def _try_text_based_fallback(self, error_details: dict) -> bool:
+        """Try to send a text-based summary when CSV upload fails completely.
+
+        Args:
+            error_details: Dictionary containing error information
+
+        Returns:
+            bool: True if text summary was sent successfully, False otherwise
+        """
+        try:
+            self.logger.info("Attempting text-based fallback notification")
+
+            # Create a comprehensive text summary
+            fallback_msg = self._create_text_based_summary(error_details)
+
+            # Try to send to the original channel as a last resort
+            response = self.client.chat_postMessage(
+                channel=self.config.channel,
+                text=fallback_msg,
+                username=self.config.username,
+                icon_emoji=":warning:",
+            )
+
+            self.logger.info("Successfully sent text-based fallback summary")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Text-based fallback also failed: {str(e)}")
+            return False
+
+    def _create_text_based_summary(self, error_details: dict) -> str:
+        """Create a text-based summary when CSV files cannot be uploaded.
+
+        Args:
+            error_details: Dictionary containing error information
+
+        Returns:
+            str: Formatted text summary
+        """
+        msg = "📊 **スクリーニング結果サマリー / Screening Results Summary**\n\n"
+        msg += "⚠️ CSVファイルのアップロードに失敗しましたが、結果をテキストで報告します。\n"
+        msg += "⚠️ CSV file upload failed, but here's a text summary of the results.\n\n"
+
+        # Add basic screening information
+        if "screening_summary" in error_details:
+            summary = error_details["screening_summary"]
+            msg += f"**実行日 / Date:** {summary.get('date', 'Unknown')}\n"
+            msg += f"**モード / Mode:** {summary.get('mode', 'Unknown')}\n"
+            msg += f"**分析銘柄数 / Analyzed Stocks:** {summary.get('analyzed_stocks', 0)}\n"
+            msg += f"**発見銘柄数 / Found Stocks:** {summary.get('value_stocks_found', 0)}\n\n"
+
+        # Add error information
+        msg += f"**エラー詳細 / Error Details:**\n"
+        msg += f"• エラーコード / Error Code: `{error_details.get('error_code', 'Unknown')}`\n"
+        msg += f"• 対象チャンネル / Target Channel: `{error_details.get('channel', 'Unknown')}`\n"
+        msg += (
+            f"• 発生時刻 / Timestamp: {error_details.get('timestamp', 'Unknown')}\n\n"
+        )
+
+        msg += "**対応 / Action Required:**\n"
+        msg += "システム管理者にSlack設定の確認を依頼してください。\n"
+        msg += "Please ask system administrator to check Slack configuration."
+
+        return msg
+
+    def send_csv_upload_failure_notification(
+        self,
+        csv_files: Dict[str, str],
+        error_summary: Dict[str, Any],
+        screening_summary: Dict[str, Any] = None,
+    ) -> bool:
+        """Send notification when CSV upload fails completely.
+
+        Args:
+            csv_files: Dictionary of CSV files that failed to upload
+            error_summary: Summary of upload errors
+            screening_summary: Optional screening results summary
+
+        Returns:
+            bool: True if notification was sent successfully, False otherwise
+        """
+        try:
+            msg = "🚨 **CSVアップロード失敗通知 / CSV Upload Failure Notification**\n\n"
+
+            # Add screening summary if available
+            if screening_summary:
+                msg += f"**スクリーニング結果 / Screening Results:**\n"
+                msg += f"• 実行日 / Date: {screening_summary.get('date', 'Unknown')}\n"
+                msg += f"• モード / Mode: {screening_summary.get('mode', 'Unknown')}\n"
+                msg += f"• 分析銘柄数 / Analyzed: {screening_summary.get('analyzed_stocks', 0)}\n"
+                msg += f"• 発見銘柄数 / Found: {screening_summary.get('value_stocks_found', 0)}\n\n"
+
+            # Add failed files information
+            if csv_files:
+                msg += f"**失敗ファイル / Failed Files ({len(csv_files)}):**\n"
+                for file_type, filepath in csv_files.items():
+                    filename = Path(filepath).name
+                    msg += f"• {filename} ({file_type})\n"
+                msg += "\n"
+
+            # Add error summary
+            if error_summary:
+                msg += f"**エラーサマリー / Error Summary:**\n"
+                for error_type, count in error_summary.items():
+                    msg += f"• {error_type}: {count}\n"
+                msg += "\n"
+
+            msg += "**対応 / Action Required:**\n"
+            msg += "1. Slackトークンとチャンネル設定を確認 / Check Slack token and channel settings\n"
+            msg += "2. ネットワーク接続を確認 / Check network connectivity\n"
+            msg += "3. ファイルサイズ制限を確認 / Check file size limits\n"
+            msg += "4. 手動でCSVファイルを確認 / Manually check CSV files in system"
+
+            response = self.client.chat_postMessage(
+                channel=self.config.channel,
+                text=msg,
+                username=self.config.username,
+                icon_emoji=":warning:",
+            )
+
+            self.logger.info("Successfully sent CSV upload failure notification")
+            return True
+
+        except Exception as e:
+            self.logger.error(
+                f"Failed to send CSV upload failure notification: {str(e)}"
+            )
+            # Try fallback notification
+            error_details = {
+                "error_code": "csv_upload_failure",
+                "channel": self.config.channel,
+                "timestamp": datetime.now().isoformat(),
+                "screening_summary": screening_summary,
+            }
+            return self._try_fallback_notification(error_details)
 
     def _handle_long_message_error(self) -> bool:
         """Handle message too long error by splitting the message.
@@ -734,7 +955,7 @@ class SlackNotifier:
         stocks: List[ValueStock],
         target_date: str = None,
     ) -> bool:
-        """Upload CSV files to Slack channel with enhanced error handling.
+        """Upload CSV files to Slack channel with enhanced error handling and retry mechanisms.
 
         Args:
             csv_files: Dictionary mapping file types to file paths
@@ -751,6 +972,7 @@ class SlackNotifier:
         upload_success = True
         uploaded_files = []
         failed_files = []
+        retry_details = {}
 
         # File type to Japanese/English names mapping
         file_descriptions = {
@@ -758,9 +980,13 @@ class SlackNotifier:
             "main_en": "メインデータ（英語）/ Main Data (English)",
             "history_jp": "履歴データ（日本語）/ Historical Data (Japanese)",
             "history_en": "履歴データ（英語）/ Historical Data (English)",
+            "summary_jp": "サマリーデータ（日本語）/ Summary Data (Japanese)",
+            "summary_en": "サマリーデータ（英語）/ Summary Data (English)",
         }
 
-        self.logger.info(f"Starting upload of {len(csv_files)} CSV files")
+        self.logger.info(
+            f"Starting upload of {len(csv_files)} CSV files with enhanced retry logic"
+        )
 
         for file_type, filepath in csv_files.items():
             try:
@@ -770,6 +996,10 @@ class SlackNotifier:
                     upload_success = False
                     continue
 
+                # Get file size for logging
+                file_size = Path(filepath).stat().st_size
+                file_size_kb = round(file_size / 1024, 2)
+
                 # Create file description
                 description = file_descriptions.get(
                     file_type, f"CSV Data ({file_type})"
@@ -777,13 +1007,18 @@ class SlackNotifier:
                 if stocks:
                     description += f" - {len(stocks)} 銘柄 / {len(stocks)} stocks"
 
-                # Upload file with retry logic
-                max_retries = 3
+                # Enhanced retry logic with exponential backoff
+                max_retries = 5
                 retry_count = 0
                 upload_successful = False
+                base_delay = 1.0  # Base delay in seconds
 
                 while retry_count < max_retries and not upload_successful:
                     try:
+                        self.logger.info(
+                            f"Uploading {Path(filepath).name} (attempt {retry_count + 1}/{max_retries}, {file_size_kb}KB)"
+                        )
+
                         response = self.client.files_upload_v2(
                             channel=self.config.channel,
                             file=filepath,
@@ -795,61 +1030,132 @@ class SlackNotifier:
                         if response["ok"]:
                             uploaded_files.append(Path(filepath).name)
                             self.logger.info(
-                                f"Successfully uploaded CSV file: {Path(filepath).name}"
+                                f"Successfully uploaded CSV file: {Path(filepath).name} ({file_size_kb}KB)"
                             )
                             upload_successful = True
+                            retry_details[Path(filepath).name] = {
+                                "attempts": retry_count + 1,
+                                "success": True,
+                                "file_size_kb": file_size_kb,
+                            }
                         else:
                             error_msg = response.get("error", "Unknown error")
                             self.logger.error(
-                                f"Failed to upload CSV file {filepath}: {error_msg}"
+                                f"Slack API error for {filepath}: {error_msg}"
                             )
-                            if retry_count < max_retries - 1:
-                                self.logger.info(
-                                    f"Retrying upload ({retry_count + 1}/{max_retries})"
+
+                            # Check if this is a permanent error that shouldn't be retried
+                            if self._is_permanent_upload_error(error_msg):
+                                self.logger.error(
+                                    f"Permanent error detected, not retrying: {error_msg}"
                                 )
+                                failed_files.append(Path(filepath).name)
+                                upload_success = False
+                                retry_details[Path(filepath).name] = {
+                                    "attempts": retry_count + 1,
+                                    "success": False,
+                                    "error": error_msg,
+                                    "permanent": True,
+                                }
+                                break
+
+                            # Transient error - retry with exponential backoff
+                            if retry_count < max_retries - 1:
+                                delay = base_delay * (
+                                    2**retry_count
+                                )  # Exponential backoff
+                                self.logger.info(
+                                    f"Retrying upload in {delay}s (attempt {retry_count + 1}/{max_retries})"
+                                )
+                                import time
+
+                                time.sleep(delay)
                                 retry_count += 1
                             else:
                                 failed_files.append(Path(filepath).name)
                                 upload_success = False
+                                retry_details[Path(filepath).name] = {
+                                    "attempts": retry_count + 1,
+                                    "success": False,
+                                    "error": error_msg,
+                                    "retries_exhausted": True,
+                                }
                                 break
 
                     except Exception as upload_error:
+                        error_str = str(upload_error)
                         self.logger.error(
-                            f"Upload attempt {retry_count + 1} failed: {str(upload_error)}"
+                            f"Upload attempt {retry_count + 1} failed: {error_str}"
                         )
-                        if retry_count < max_retries - 1:
-                            retry_count += 1
+
+                        # Check if this is a network/connection error that should be retried
+                        if self._is_retryable_upload_error(upload_error):
+                            if retry_count < max_retries - 1:
+                                delay = base_delay * (
+                                    2**retry_count
+                                )  # Exponential backoff
+                                self.logger.info(
+                                    f"Network error detected, retrying in {delay}s (attempt {retry_count + 1}/{max_retries})"
+                                )
+                                import time
+
+                                time.sleep(delay)
+                                retry_count += 1
+                            else:
+                                failed_files.append(Path(filepath).name)
+                                upload_success = False
+                                retry_details[Path(filepath).name] = {
+                                    "attempts": retry_count + 1,
+                                    "success": False,
+                                    "error": error_str,
+                                    "retries_exhausted": True,
+                                }
+                                break
                         else:
+                            # Non-retryable error
                             failed_files.append(Path(filepath).name)
                             upload_success = False
+                            retry_details[Path(filepath).name] = {
+                                "attempts": retry_count + 1,
+                                "success": False,
+                                "error": error_str,
+                                "non_retryable": True,
+                            }
                             break
 
             except Exception as e:
-                self.logger.error(f"Error uploading CSV file {filepath}: {str(e)}")
+                self.logger.error(
+                    f"Error uploading CSV file {filepath}: {str(e)}", exc_info=True
+                )
                 failed_files.append(Path(filepath).name)
                 upload_success = False
+                retry_details[Path(filepath).name] = {
+                    "attempts": 1,
+                    "success": False,
+                    "error": str(e),
+                    "exception": True,
+                }
 
-        # Send summary message if files were uploaded or failed
-        try:
-            if uploaded_files or failed_files:
-                summary_msg = (
-                    f"📁 **CSVファイルアップロード結果 / CSV Upload Results**\n\n"
+        # Log comprehensive upload summary
+        self.logger.info(
+            f"CSV upload completed: {len(uploaded_files)} successful, {len(failed_files)} failed"
+        )
+        for filename, details in retry_details.items():
+            if details["success"]:
+                self.logger.info(
+                    f"  ✅ {filename}: {details['attempts']} attempts, {details.get('file_size_kb', 0)}KB"
+                )
+            else:
+                self.logger.error(
+                    f"  ❌ {filename}: {details['attempts']} attempts, error: {details.get('error', 'Unknown')}"
                 )
 
-                if uploaded_files:
-                    summary_msg += f"✅ **成功 / Successful uploads:**\n"
-                    for filename in uploaded_files:
-                        summary_msg += f"• {filename}\n"
-                    summary_msg += "\n"
-
-                if failed_files:
-                    summary_msg += f"❌ **失敗 / Failed uploads:**\n"
-                    for filename in failed_files:
-                        summary_msg += f"• {filename}\n"
-                    summary_msg += "\n"
-
-                if target_date:
-                    summary_msg += f"📅 データ日付 / Data Date: {target_date}"
+        # Send enhanced summary message
+        try:
+            if uploaded_files or failed_files:
+                summary_msg = self._create_upload_summary_message(
+                    uploaded_files, failed_files, retry_details, target_date
+                )
 
                 self.client.chat_postMessage(
                     channel=self.config.channel,
@@ -858,10 +1164,111 @@ class SlackNotifier:
                     icon_emoji=":file_folder:",
                 )
 
-                self.logger.info(
-                    f"CSV upload summary: {len(uploaded_files)} successful, {len(failed_files)} failed"
-                )
+                self.logger.info("Sent enhanced CSV upload summary notification")
         except Exception as e:
             self.logger.warning(f"Failed to send CSV upload summary: {str(e)}")
 
         return upload_success
+
+    def _is_permanent_upload_error(self, error_code: str) -> bool:
+        """Check if an upload error is permanent and should not be retried.
+
+        Args:
+            error_code: Slack API error code
+
+        Returns:
+            bool: True if error is permanent, False if it should be retried
+        """
+        permanent_errors = {
+            "invalid_auth",
+            "account_inactive",
+            "token_revoked",
+            "no_permission",
+            "channel_not_found",
+            "not_in_channel",
+            "channel_is_archived",
+            "file_too_large",
+            "invalid_file_type",
+        }
+        return error_code in permanent_errors
+
+    def _is_retryable_upload_error(self, error: Exception) -> bool:
+        """Check if an upload exception is retryable.
+
+        Args:
+            error: Exception that occurred during upload
+
+        Returns:
+            bool: True if error should be retried, False otherwise
+        """
+        error_str = str(error).lower()
+        retryable_patterns = [
+            "connection",
+            "timeout",
+            "network",
+            "temporary",
+            "rate_limited",
+            "server error",
+            "503",
+            "502",
+            "500",
+        ]
+        return any(pattern in error_str for pattern in retryable_patterns)
+
+    def _create_upload_summary_message(
+        self,
+        uploaded_files: List[str],
+        failed_files: List[str],
+        retry_details: Dict[str, Dict],
+        target_date: str = None,
+    ) -> str:
+        """Create enhanced upload summary message with retry details.
+
+        Args:
+            uploaded_files: List of successfully uploaded files
+            failed_files: List of failed file uploads
+            retry_details: Dictionary with retry attempt details
+            target_date: Optional target date
+
+        Returns:
+            str: Formatted summary message
+        """
+        summary_msg = f"📁 **CSVファイルアップロード結果 / CSV Upload Results**\n\n"
+
+        if uploaded_files:
+            summary_msg += (
+                f"✅ **成功 / Successful uploads ({len(uploaded_files)}):**\n"
+            )
+            for filename in uploaded_files:
+                details = retry_details.get(filename, {})
+                attempts = details.get("attempts", 1)
+                size_kb = details.get("file_size_kb", 0)
+                if attempts > 1:
+                    summary_msg += f"• {filename} ({size_kb}KB, {attempts} attempts)\n"
+                else:
+                    summary_msg += f"• {filename} ({size_kb}KB)\n"
+            summary_msg += "\n"
+
+        if failed_files:
+            summary_msg += f"❌ **失敗 / Failed uploads ({len(failed_files)}):**\n"
+            for filename in failed_files:
+                details = retry_details.get(filename, {})
+                attempts = details.get("attempts", 1)
+                error = details.get("error", "Unknown error")
+                # Truncate long error messages
+                if len(error) > 50:
+                    error = error[:47] + "..."
+                summary_msg += f"• {filename} ({attempts} attempts, {error})\n"
+            summary_msg += "\n"
+
+        if target_date:
+            summary_msg += f"📅 **データ日付 / Data Date:** {target_date}\n"
+
+        # Add retry statistics
+        total_attempts = sum(
+            details.get("attempts", 1) for details in retry_details.values()
+        )
+        if total_attempts > len(retry_details):
+            summary_msg += f"🔄 **リトライ統計 / Retry Stats:** {total_attempts} total attempts for {len(retry_details)} files"
+
+        return summary_msg

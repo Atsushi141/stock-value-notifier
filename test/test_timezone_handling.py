@@ -15,8 +15,8 @@ import os
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from data_fetcher import DataFetcher
-from exceptions import DataNotFoundError, APIError
+from src.data_fetcher import DataFetcher
+from src.exceptions import DataNotFoundError, APIError
 
 
 class TestTimezoneHandling:
